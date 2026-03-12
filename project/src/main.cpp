@@ -1,5 +1,6 @@
 ﻿#include "HelloTriangleApp.h"
-#include "TutorialSrc/HelloTriangleTut.hpp"
+#include "TutorialSrc/HelloTriangle_Tutorial.hpp"
+#include "TutorialSrc/HelloTriangle_Tutorial2.hpp"
 
 // ctrl M + O to collapse all functions in the file
 

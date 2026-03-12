@@ -60,7 +60,8 @@ find_package(Vulkan REQUIRED)
 set(SOURCES
     "src/main.cpp"  
     "src/HelloTriangleApp.cpp"
-    "src/TutorialSrc/HelloTriangleTut.hpp")
+    "src/TutorialSrc/HelloTriangle_Tutorial.hpp"
+    "src/TutorialSrc/HelloTriangle_Tutorial2.hpp")
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
