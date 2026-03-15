@@ -72,6 +72,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE glfw glm Vulkan::Vulkan)
 add_custom_target(CompileShaders ALL DEPENDS ${SPIRV_FILES})
 add_dependencies(${PROJECT_NAME} CompileShaders)
 
+# COPY RESOURCES =============================================
+
 add_custom_target(CopyResources ALL DEPENDS CompileShaders
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/resources"
