@@ -5,7 +5,7 @@
 
 #define TINYOBJLOADER_IMPLEMENTATION
 //#define TINYOBJLOADER_NO_FASTFLOAT //to avoid compile errors with fast_float
-#include "tiny_obj_loader.h"
+#include <tiny_obj_loader.h>
 
 #include <iostream>
 #include <stdexcept>

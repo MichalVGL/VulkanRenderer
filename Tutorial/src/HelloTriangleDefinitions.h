@@ -18,7 +18,7 @@ const uint32_t HEIGHT = 600;
 const std::string MODEL_PATH = "resources/models/viking_room.obj";
 const std::string TEXTURE_PATH = "resources/images/viking_room.png";
 
-const int MAX_FRAMES_IN_FLIGHT = 2;
+const int MAX_FRAMES_IN_FLIGHT = 3;
 
 struct Vertex {
 	glm::vec3 pos;
