@@ -1,16 +1,20 @@
 #ifndef DELETIONQUEUE_H
 #define DELETIONQUEUE_H
 
-#include <deque>
-#include <functional>
-#include <ranges>
-#include <algorithm>
+#include "pch.h"
 
-namespace Renderer
+#include <deque>
+
+namespace dae
 {
 	class DeletionQueue final
 	{
 	public:
+
+		~DeletionQueue()
+		{
+			Flush();
+		}
 
 		void PushDeleter(std::function<void()>&& deletorFunc)
 		{
@@ -19,10 +23,8 @@ namespace Renderer
 
 		void Flush()
 		{
-			std::ranges::for_each(std::views::reverse(m_Deletors), [](std::function<void()>& deletorFunc)
-				{
-					deletorFunc();
-				});
+			for (auto& deletorFunc : m_Deletors | std::views::reverse)
+				deletorFunc();
 
 			m_Deletors.clear();
 		}

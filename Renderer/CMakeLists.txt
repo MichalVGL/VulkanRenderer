@@ -64,13 +64,16 @@ FetchContent_MakeAvailable(assimp)
 
 set(SOURCES
     "src/main.cpp"  
-    "src/DeletionQueue.hpp"
-)
+    "src/Renderer.cpp" 
+    "src/Device.cpp" "src/vma.cpp" "src/Swapchain.cpp" "src/VulkanUtils.cpp")
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # include header only libraries
 target_include_directories(${PROJECT_NAME} PRIVATE ${stb_SOURCE_DIR} ${tinyobj_SOURCE_DIR})
+
+# setup the precompiled header
+target_precompile_headers(${PROJECT_NAME} PRIVATE "src/pch.h")
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     glfw 
