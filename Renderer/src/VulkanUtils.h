@@ -9,6 +9,12 @@ namespace dae
 {
 	class Device;
 
+	//Type Aliases
+
+	// signals that the resource is managed by that class (prevent confusion from raw pointers)
+	template<typename T>
+	using ManagedPtr = T*;
+
 	//Helper Structs
 
 	struct QueueFamilyIndices
@@ -23,17 +29,9 @@ namespace dae
 
 	struct SwapChainSupportDetails
 	{
-		VkSurfaceCapabilitiesKHR capabilities;
-		std::vector<VkSurfaceFormatKHR> formats;
+		VkSurfaceCapabilitiesKHR capabilities{};
+		std::vector<VkSurfaceFormatKHR> formats{};
 		std::vector<VkPresentModeKHR> presentModes;
-	};
-
-	struct FrameData
-	{
-		VkCommandBuffer commandBuffer;
-		VkSemaphore imageAvailableSemaphore;
-		VkSemaphore renderFinishedSemaphore;
-		VkFence inFlightFence;
 	};
 
 	//Helper Functions

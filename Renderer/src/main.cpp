@@ -1,7 +1,11 @@
 #include "pch.h"
+#include "Renderer.h"
 
 int main()
 {
+
+	dae::Renderer renderer{};
+	renderer.Init();
 
 	Assimp::Importer importer;
 

@@ -11,14 +11,20 @@ namespace dae
 	{
 	public:
 
+		DeletionQueue() = default;
 		~DeletionQueue()
 		{
 			Flush();
 		}
 
+		DeletionQueue(const DeletionQueue&) = delete;
+		DeletionQueue(DeletionQueue&&) = delete;
+		DeletionQueue& operator=(const DeletionQueue&) = delete;
+		DeletionQueue& operator=(DeletionQueue&&) = delete;
+
 		void PushDeleter(std::function<void()>&& deletorFunc)
 		{
-			m_Deletors.push_back(deletorFunc);
+			m_Deletors.push_back(std::move(deletorFunc));
 		}
 
 		void Flush()

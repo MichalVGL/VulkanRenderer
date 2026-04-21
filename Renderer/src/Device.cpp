@@ -17,18 +17,39 @@ std::vector<const char*> getRequiredExtensions() {
 	return extensions;
 }
 
-void dae::Device::Init(GLFWwindow* window)
+void dae::Device::Init(const Window& window)
 {
-	if (window == nullptr)
+	//verify input
+	if (window.IsInitialized() == false)
 	{
-		std::cerr << "[Device.cpp] window given in initialization is null!\n";
-		throw std::invalid_argument("window is null!");
+		std::cerr << "[Device.cpp] window given in initialization is not initialized!\n";
+		throw std::invalid_argument("Window is not initialized!");
 	}
+	GLFWwindow* pWindow = window.GetGLFWwindow();
+
+	//in case of reinitialization, clear previous resources
+	m_DeletionQueue.Flush();
 
 	CreateInstance();
-	CreateSurface(window);
+	CreateSurface(pWindow);
 	PickPhysicalDevice();
 	CreateLogicalDevice();
+}
+
+bool dae::Device::IsInitialized() const
+{
+	return m_Device != VK_NULL_HANDLE
+		&& m_PhysicalDevice != VK_NULL_HANDLE
+		&& m_Surface != VK_NULL_HANDLE
+		&& m_GraphicsQueue != VK_NULL_HANDLE
+		&& m_PresentQueue != VK_NULL_HANDLE;
+}
+
+std::function<void()> dae::Device::GetDeletionFlush()
+{
+	return std::function<void()>(
+		std::bind(&DeletionQueue::Flush, &m_DeletionQueue)
+	);
 }
 
 void dae::Device::CreateInstance()
@@ -60,6 +81,7 @@ void dae::Device::CreateInstance()
 		m_DeletionQueue.PushDeleter([this]()
 			{
 				vkDestroyInstance(m_Instance, nullptr);
+				m_Instance = VK_NULL_HANDLE;
 			});
 	}
 }
@@ -68,6 +90,14 @@ void dae::Device::CreateSurface(GLFWwindow* window)
 {
 	if (glfwCreateWindowSurface(m_Instance, window, nullptr, &m_Surface) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create window surface!");
+	}
+	else
+	{
+		m_DeletionQueue.PushDeleter([this]()
+			{
+				vkDestroySurfaceKHR(m_Instance, m_Surface, nullptr);
+				m_Surface = VK_NULL_HANDLE;
+			});
 	}
 }
 
@@ -137,6 +167,17 @@ void dae::Device::CreateLogicalDevice()
 	if (vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_Device) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create logical device!");
 	}
+	else
+	{
+		m_DeletionQueue.PushDeleter([this]()
+			{
+				vkDestroyDevice(m_Device, nullptr);
+				m_Device = VK_NULL_HANDLE;
+				m_PhysicalDevice = VK_NULL_HANDLE;
+				m_GraphicsQueue = VK_NULL_HANDLE;
+				m_PresentQueue = VK_NULL_HANDLE;
+			});
+	}
 
 	vkGetDeviceQueue(m_Device, m_QueueFamilyIndices.graphicsFamily.value(), 0, &m_GraphicsQueue);
 	vkGetDeviceQueue(m_Device, m_QueueFamilyIndices.presentFamily.value(), 0, &m_PresentQueue);
@@ -161,7 +202,7 @@ bool dae::Device::IsDeviceSuitable(VkPhysicalDevice device)
 	//
 	//return indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
 
-	return indices.isComplete();
+	return indices.IsComplete();
 }
 
 dae::QueueFamilyIndices dae::Device::FindQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface)
@@ -187,7 +228,7 @@ dae::QueueFamilyIndices dae::Device::FindQueueFamilies(VkPhysicalDevice device, 
 			indices.presentFamily = i;
 		}
 
-		if (indices.isComplete()) {
+		if (indices.IsComplete()) {
 			break;
 		}
 

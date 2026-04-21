@@ -2,13 +2,26 @@
 
 #include "Device.h"
 
-void dae::Swapchain::Init(const Device& device, GLFWwindow* pWindow)
+void dae::Swapchain::Init(const Device& device, const Window& window)
 {
-	if (pWindow == nullptr)
+	//verify input
+	if (window.IsInitialized() == false)
 	{
-		std::cerr << "[SwapChain.cpp] window given in initialization is null!\n";
-		throw std::invalid_argument("window is null!");
+		std::cerr << "[SwapChain.cpp] window given in initialization is not initialized!\n";
+		throw std::invalid_argument("Window is not initialized!");
 	}
+
+	if (device.IsInitialized() == false)
+	{
+		std::cerr << "[SwapChain.cpp] device given in initialization is not initialized!\n";
+		throw std::invalid_argument("Device is not initialized!");
+	}
+
+	GLFWwindow* pWindow = window.GetGLFWwindow();
+
+
+	//in case of reinitialization, clear previous resources
+	m_DeletionQueue.Flush();
 
 	//get swapchain support details and imagecount
 	SwapChainSupportDetails swapChainSupport = QuerySwapChainSupport(device);
@@ -31,7 +44,7 @@ void dae::Swapchain::Init(const Device& device, GLFWwindow* pWindow)
 	createInfo.imageColorSpace = surfaceFormat.colorSpace;
 	createInfo.imageExtent = extent;
 	createInfo.imageArrayLayers = 1;
-	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; //todo, add TRANSFER_DST_BIT for clear.
 
 	const QueueFamilyIndices& indices = device.GetQueueFamilyIndices();
 	uint32_t queueFamilyIndices[2] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
@@ -60,6 +73,7 @@ void dae::Swapchain::Init(const Device& device, GLFWwindow* pWindow)
 		m_DeletionQueue.PushDeleter([this, logicalDevice = device.GetLogicalDevice()]()
 			{
 				vkDestroySwapchainKHR(logicalDevice, m_SwapChain, nullptr);
+				m_SwapChain = VK_NULL_HANDLE;
 			});
 	}
 
@@ -79,8 +93,26 @@ void dae::Swapchain::Init(const Device& device, GLFWwindow* pWindow)
 		m_DeletionQueue.PushDeleter([this, i, logicalDevice = device.GetLogicalDevice()]()
 			{
 				vkDestroyImageView(logicalDevice, m_SwapChainImageViews[i], nullptr);
+				m_SwapChainImageViews[i] = VK_NULL_HANDLE;
 			});
 	}
+}
+
+bool dae::Swapchain::IsInitialized() const
+{
+	return m_SwapChain != VK_NULL_HANDLE
+		&& !m_SwapChainImages.empty()
+		&& m_SwapChainImageFormat != VK_FORMAT_UNDEFINED
+		&& m_SwapChainExtent.width != 0
+		&& m_SwapChainExtent.height != 0
+		&& !m_SwapChainImageViews.empty();
+}
+
+std::function<void()> dae::Swapchain::GetDeletionFlush() //todo, use this for other classes aswell and use them in renderer
+{
+	return std::function<void()>(
+		std::bind(&DeletionQueue::Flush, &m_DeletionQueue)
+	);
 }
 
 dae::SwapChainSupportDetails dae::Swapchain::QuerySwapChainSupport(const Device& device)
@@ -118,7 +150,8 @@ VkSurfaceFormatKHR dae::Swapchain::ChooseSwapSurfaceFormat(const std::vector<VkS
 		}
 	}
 
-	//could be handled by having fallback formats, but the project will not be adapted to these fallback options -> throw instead
+	//could be handled by having fallback formats, but the project will not be adapted for these fallback options -> throw instead
+	
 	std::cerr << "[Swapchain.cpp] failed to find a suitable surface format!\n";
 	throw std::runtime_error("failed to find a suitable surface format!");
 }

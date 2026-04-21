@@ -4,6 +4,10 @@
 #include "pch.h"
 
 #include "DeletionQueue.h"
+#include "VulkanUtils.h"
+#include "Device.h"
+#include "Swapchain.h"
+#include "Window.h"
 
 namespace dae
 {
@@ -18,6 +22,8 @@ namespace dae
 	//
 	//}
 
+	class Frame;
+
 	class Renderer final
 	{
 	public:
@@ -26,17 +32,25 @@ namespace dae
 
 		void Init();
 
+		void DrawFrame();
+
 	private:
+
+		void CreateCommandPool();
 
 		void DeleteResources();
 
 		bool m_IsInitialized{ false };
 
-		GLFWwindow* m_pWindow;
+		Window m_Window{};
+		Device m_Device{};
+		Swapchain m_Swapchain{};
 
-		std::vector<VkSemaphore> m_ImageAvailableSemaphores;
-		std::vector<VkSemaphore> m_RenderFinishedSemaphores;
-		std::vector<VkFence> m_InFlightFences;
+		VkCommandPool m_CommandPool{};
+
+		std::vector<Frame> m_Frames{};
+		int m_CurrentFrame{ 0 };
+		int m_MaxFramesInFlight{ 2 };
 
 		DeletionQueue m_DeletionQueue{};
 	};

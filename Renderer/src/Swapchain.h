@@ -5,6 +5,7 @@
 
 #include "VulkanUtils.h"
 #include "DeletionQueue.h"
+#include "Window.h"
 
 namespace dae
 {
@@ -14,7 +15,12 @@ namespace dae
 	{
 	public:
 
-		void Init(const Device& device, GLFWwindow* pWindow);
+		void Init(const Device& device, const Window& window);
+
+		VkSwapchainKHR GetSwapChain() const { return m_SwapChain; }
+
+		bool IsInitialized() const;
+		std::function<void()> GetDeletionFlush();
 
 		static SwapChainSupportDetails QuerySwapChainSupport(const Device& device);
 

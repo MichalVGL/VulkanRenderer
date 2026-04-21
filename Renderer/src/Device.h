@@ -5,6 +5,7 @@
 
 #include "DeletionQueue.h"
 #include "VulkanUtils.h"
+#include "Window.h"
 
 namespace dae
 {
@@ -12,15 +13,17 @@ namespace dae
 	{
 	public:
 
-		void Init(GLFWwindow* pWindow);
+		void Init(const Window& window);
 
 		VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
 		VkDevice GetLogicalDevice() const { return m_Device; }
 		VkSurfaceKHR GetSurface() const { return m_Surface; }
-
 		const QueueFamilyIndices& GetQueueFamilyIndices() const { return m_QueueFamilyIndices; }
 		VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
 		VkQueue GetPresentQueue() const { return m_PresentQueue; }
+
+		bool IsInitialized() const;
+		std::function<void()> GetDeletionFlush();
 
 	private:
 
@@ -33,17 +36,17 @@ namespace dae
 
 		static QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
 
-		VkInstance m_Instance;
+		VkInstance m_Instance{};
 		VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
-		VkDevice m_Device;
+		VkDevice m_Device{};
 
-		VkSurfaceKHR m_Surface;
+		VkSurfaceKHR m_Surface{};
 
-		QueueFamilyIndices m_QueueFamilyIndices;
-		VkQueue m_GraphicsQueue;
+		QueueFamilyIndices m_QueueFamilyIndices{};
+		VkQueue m_GraphicsQueue{};
 		VkQueue m_PresentQueue;
 
-		DeletionQueue m_DeletionQueue;
+		DeletionQueue m_DeletionQueue{};
 	};
 }
 
