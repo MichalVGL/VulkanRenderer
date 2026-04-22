@@ -32,7 +32,7 @@ void dae::Frame::WaitForFence(const Device& device)
 
 void dae::Frame::ResetFence(const Device& device)
 {
-
+	//todo,make
 }
 
 VkCommandBuffer dae::Frame::BeginCommands()
