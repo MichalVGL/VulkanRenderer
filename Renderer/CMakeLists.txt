@@ -65,7 +65,7 @@ FetchContent_MakeAvailable(assimp)
 set(SOURCES
     "src/main.cpp"  
     "src/Renderer.cpp" 
-    "src/Device.cpp" "src/vma.cpp" "src/Swapchain.cpp" "src/VulkanUtils.cpp" "src/Window.cpp" "src/Frame.cpp")
+    "src/Device.cpp" "src/vma.cpp" "src/Swapchain.cpp" "src/VulkanUtils.cpp" "src/Window.cpp" "src/Frame.cpp" "src/InputHandler.cpp" "src/Image.cpp")
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 

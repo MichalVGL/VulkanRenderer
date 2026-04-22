@@ -34,6 +34,7 @@ void dae::Device::Init(const Window& window)
 	CreateSurface(pWindow);
 	PickPhysicalDevice();
 	CreateLogicalDevice();
+	CreateAllocator();
 }
 
 bool dae::Device::IsInitialized() const
@@ -153,8 +154,8 @@ void dae::Device::CreateLogicalDevice()
 
 	createInfo.pEnabledFeatures = &deviceFeatures;
 
-	//createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
-	//createInfo.ppEnabledExtensionNames = deviceExtensions.data();
+	createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
+	createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 	//
 	//if (enableValidationLayers) {
 	//	createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
@@ -181,6 +182,23 @@ void dae::Device::CreateLogicalDevice()
 
 	vkGetDeviceQueue(m_Device, m_QueueFamilyIndices.graphicsFamily.value(), 0, &m_GraphicsQueue);
 	vkGetDeviceQueue(m_Device, m_QueueFamilyIndices.presentFamily.value(), 0, &m_PresentQueue);
+}
+
+void dae::Device::CreateAllocator()
+{
+	VmaAllocatorCreateInfo allocatorInfo{};
+	allocatorInfo.physicalDevice = m_PhysicalDevice;
+	allocatorInfo.device = m_Device;
+	allocatorInfo.instance = m_Instance;
+
+	if (vmaCreateAllocator(&allocatorInfo, &m_Allocator) != VK_SUCCESS)
+		throw std::runtime_error("failed to create VMA allocator!");
+
+	m_DeletionQueue.PushDeleter([this]()
+		{
+			vmaDestroyAllocator(m_Allocator);
+			m_Allocator = VK_NULL_HANDLE;
+		});
 }
 
 //todo, delete this temp code, use a better extension system

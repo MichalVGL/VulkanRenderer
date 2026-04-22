@@ -1,19 +1,30 @@
 #include "pch.h"
 #include "Renderer.h"
+#include "Window.h"
+#include "InputHandler.h"
 
 int main()
 {
+	// Window
+	dae::Window window{};
+	window.Init({ 800, 600 }, "Vulkan Renderer");
 
+	// Input Handler
+	dae::InputHandler inputHandler{ &window };
+
+	// Renderer
 	dae::Renderer renderer{};
-	renderer.Init();
+	renderer.Init(&window);
 
-	Assimp::Importer importer;
+	// Main loop
+	while (!window.ShouldClose())
+	{
+		inputHandler.Update();
 
-	const aiScene* material = importer.ReadFile(std::string{}, 0);
+		renderer.DrawFrame();
 
-	std::cout << (material != nullptr) << std::endl;
-
-	std::getchar();
+		glfwPollEvents();
+	}
 
 	return 0;
 }

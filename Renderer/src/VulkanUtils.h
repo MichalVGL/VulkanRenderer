@@ -9,6 +9,11 @@ namespace dae
 {
 	class Device;
 
+	//TODO, delete temp code
+	const std::vector<const char*> deviceExtensions = {
+	VK_KHR_SWAPCHAIN_EXTENSION_NAME
+	};
+
 	//Type Aliases
 
 	// signals that the resource is managed by that class (prevent confusion from raw pointers)

@@ -19,7 +19,6 @@ void dae::Swapchain::Init(const Device& device, const Window& window)
 
 	GLFWwindow* pWindow = window.GetGLFWwindow();
 
-
 	//in case of reinitialization, clear previous resources
 	m_DeletionQueue.Flush();
 
@@ -44,7 +43,7 @@ void dae::Swapchain::Init(const Device& device, const Window& window)
 	createInfo.imageColorSpace = surfaceFormat.colorSpace;
 	createInfo.imageExtent = extent;
 	createInfo.imageArrayLayers = 1;
-	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; //todo, add TRANSFER_DST_BIT for clear.
+	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT; //todo, add TRANSFER_DST_BIT for clear.
 
 	const QueueFamilyIndices& indices = device.GetQueueFamilyIndices();
 	uint32_t queueFamilyIndices[2] = { indices.graphicsFamily.value(), indices.presentFamily.value() };

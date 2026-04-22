@@ -36,6 +36,11 @@ bool dae::Window::IsInitialized() const
 	return m_pWindow != nullptr;
 }
 
+bool dae::Window::ShouldClose() const
+{
+	return glfwWindowShouldClose(m_pWindow.get());
+}
+
 void dae::Window::SetResizeCallback(GLFWframebuffersizefun callback)
 {
 	if (!m_pWindow)

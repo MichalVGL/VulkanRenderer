@@ -22,13 +22,14 @@ namespace dae
 
 		void Init(glm::ivec2 size, const std::string& title);
 
-		bool IsInitialized() const;
-
 		void SetResizeCallback(GLFWframebuffersizefun callback);
 
+		bool IsInitialized() const;
 		GLFWwindow* GetGLFWwindow() const { return m_pWindow.get(); }
 		glm::ivec2 GetSize() const { return m_Size; }
 		const std::string& GetTitle() const { return m_Title; }
+
+		bool ShouldClose() const;
 
 	private:
 		struct GLFWwindowDeleter

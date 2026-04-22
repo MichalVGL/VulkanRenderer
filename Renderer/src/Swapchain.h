@@ -21,6 +21,7 @@ namespace dae
 
 		bool IsInitialized() const;
 		std::function<void()> GetDeletionFlush();
+		VkImage GetImage(size_t index) const { return m_SwapChainImages[index]; }
 
 		static SwapChainSupportDetails QuerySwapChainSupport(const Device& device);
 

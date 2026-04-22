@@ -17,6 +17,7 @@ namespace dae
 
 		VkPhysicalDevice GetPhysicalDevice() const { return m_PhysicalDevice; }
 		VkDevice GetLogicalDevice() const { return m_Device; }
+		VmaAllocator GetAllocator() const { return m_Allocator; }
 		VkSurfaceKHR GetSurface() const { return m_Surface; }
 		const QueueFamilyIndices& GetQueueFamilyIndices() const { return m_QueueFamilyIndices; }
 		VkQueue GetGraphicsQueue() const { return m_GraphicsQueue; }
@@ -31,21 +32,23 @@ namespace dae
 		void CreateSurface(GLFWwindow* pWindow);
 		void PickPhysicalDevice();
 		void CreateLogicalDevice();
+		void CreateAllocator();
 
 		bool IsDeviceSuitable(VkPhysicalDevice device);
 
 		static QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface);
 
-		VkInstance m_Instance{};
-		VkPhysicalDevice m_PhysicalDevice = VK_NULL_HANDLE;
-		VkDevice m_Device{};
+		VkInstance m_Instance{ VK_NULL_HANDLE };
+		VkPhysicalDevice m_PhysicalDevice{ VK_NULL_HANDLE };
+		VkDevice m_Device{ VK_NULL_HANDLE };
 
-		VkSurfaceKHR m_Surface{};
+		VmaAllocator m_Allocator{ VK_NULL_HANDLE };
+
+		VkSurfaceKHR m_Surface{ VK_NULL_HANDLE };
 
 		QueueFamilyIndices m_QueueFamilyIndices{};
-		VkQueue m_GraphicsQueue{};
-		VkQueue m_PresentQueue;
-
+		VkQueue m_GraphicsQueue{ VK_NULL_HANDLE };
+		VkQueue m_PresentQueue{ VK_NULL_HANDLE };
 		DeletionQueue m_DeletionQueue{};
 	};
 }
