@@ -65,9 +65,16 @@ FetchContent_MakeAvailable(assimp)
 set(SOURCES
     "src/main.cpp"  
     "src/Renderer.cpp" 
-    "src/Device.cpp" "src/vma.cpp" "src/Swapchain.cpp" "src/VulkanUtils.cpp" "src/Window.cpp" "src/Frame.cpp" "src/InputHandler.cpp" "src/Image.cpp")
+    "src/Device.cpp" "src/vma.cpp" "src/Swapchain.cpp" "src/VulkanUtils.cpp" "src/Window.cpp" "src/Frame.cpp" "src/InputHandler.cpp" "src/Image.cpp" "src/Camera.cpp" "src/Pipeline.cpp" "src/Scene.cpp")
+
+
+# create the executable and defined macros
 
 add_executable(${PROJECT_NAME} ${SOURCES})
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    $<$<CONFIG:Debug>:DEBUG>
+)
 
 # include header only libraries
 target_include_directories(${PROJECT_NAME} PRIVATE ${stb_SOURCE_DIR} ${tinyobj_SOURCE_DIR})

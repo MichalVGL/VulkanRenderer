@@ -1,5 +1,7 @@
 #include "Renderer.h"
 
+#include "VulkanSetup.h"
+
 void dae::Renderer::Init(const Window* pWindow)
 {
 	//verify input
@@ -27,11 +29,24 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	//
 
+	// Device
 	m_Device.Init(*m_pWindow);
 	m_DeletionQueue.PushDeleter(m_Device.GetDeletionFlush());
 
-	m_Swapchain.Init(m_Device, *m_pWindow);
+	m_MaxFramesInFlight = g_DesiredMaxFramesInFlight;
+
+	// Swapchain
+	m_Swapchain.Init(m_Device, *m_pWindow, m_MaxFramesInFlight); //might change max frames in flight
 	m_DeletionQueue.PushDeleter(m_Swapchain.GetDeletionFlush());
+
+	// Pipeline
+	PipelineInfo pipelineInfo{};
+	pipelineInfo.vertexShaderFilePath = "resources/shaders/triangle.vert.spv";
+	pipelineInfo.fragmentShaderFilePath = "resources/shaders/triangle.frag.spv";
+	pipelineInfo.colorAttachmentFormat = m_Swapchain.GetImageFormat();
+
+	m_Pipeline.Init(m_Device, pipelineInfo);
+	m_DeletionQueue.PushDeleter(m_Pipeline.GetDeletionFlush());
 
 	CreateCommandPool();
 	m_Frames.resize(m_MaxFramesInFlight);
@@ -44,6 +59,11 @@ void dae::Renderer::Init(const Window* pWindow)
 		frame->Init(m_Device, m_CommandPool);
 		m_DeletionQueue.PushDeleter(frame->GetDeletionFlush());
 	}
+
+	m_DeletionQueue.PushDeleter([this]()
+		{
+			vkDeviceWaitIdle(m_Device.GetLogicalDevice());
+		});
 
 	m_IsInitialized = true;
 }
@@ -66,64 +86,59 @@ void dae::Renderer::DrawFrame()
 		throw std::runtime_error("failed to acquire swap chain image!");
 	}
 
+	currentFrame.ResetFence(m_Device);
+
 	VkCommandBuffer commandBuffer = currentFrame.BeginCommands();
 
-	//todo, add command buffer recording here
-	// 1. transition image to transfer dst optimal
-	VkImageMemoryBarrier barrierToClear{};
-	barrierToClear.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	barrierToClear.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	barrierToClear.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	barrierToClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrierToClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrierToClear.image = m_Swapchain.GetImage(imageIndex);
-	barrierToClear.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	barrierToClear.subresourceRange.baseMipLevel = 0;
-	barrierToClear.subresourceRange.levelCount = 1;
-	barrierToClear.subresourceRange.baseArrayLayer = 0;
-	barrierToClear.subresourceRange.layerCount = 1;
-	barrierToClear.srcAccessMask = 0;
-	barrierToClear.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	ImageRef& image = m_Swapchain.GetImage(imageIndex);
 
-	vkCmdPipelineBarrier(commandBuffer,
-		VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &barrierToClear);
+	image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
-	// 2. clear
-	VkClearColorValue clearColor = { { 0.0f, 1.0f, 1.0f, 1.0f } };
-	VkImageSubresourceRange clearRange{};
-	clearRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	clearRange.baseMipLevel = 0;
-	clearRange.levelCount = 1;
-	clearRange.baseArrayLayer = 0;
-	clearRange.layerCount = 1;
+	// begin rendering
+	VkRenderingAttachmentInfo colorAttachment{};
+	colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	colorAttachment.imageView = image.GetImageView();
+	colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	colorAttachment.clearValue.color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
 
-	vkCmdClearColorImage(commandBuffer,
-		m_Swapchain.GetImage(imageIndex),
-		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		&clearColor, 1, &clearRange);
+	VkRenderingInfo renderingInfo{};
+	renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	renderingInfo.renderArea = { {0, 0}, m_Swapchain.GetExtent() };
+	renderingInfo.layerCount = 1;
+	renderingInfo.colorAttachmentCount = 1;
+	renderingInfo.pColorAttachments = &colorAttachment;
 
-	// 3. transition image to present src
-	VkImageMemoryBarrier barrierToPresent{};
-	barrierToPresent.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	barrierToPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	barrierToPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	barrierToPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrierToPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrierToPresent.image = m_Swapchain.GetImage(imageIndex);
-	barrierToPresent.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	barrierToPresent.subresourceRange.baseMipLevel = 0;
-	barrierToPresent.subresourceRange.levelCount = 1;
-	barrierToPresent.subresourceRange.baseArrayLayer = 0;
-	barrierToPresent.subresourceRange.layerCount = 1;
-	barrierToPresent.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-	barrierToPresent.dstAccessMask = 0;
+	vkCmdBeginRendering(commandBuffer, &renderingInfo);
 
-	vkCmdPipelineBarrier(commandBuffer,
-		VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-		0, 0, nullptr, 0, nullptr, 1, &barrierToPresent);
+	// set dynamic viewport and scissor
+	VkViewport viewport{};
+	viewport.x = 0.0f;
+	viewport.y = 0.0f;
+	viewport.width = static_cast<float>(m_Swapchain.GetExtent().width);
+	viewport.height = static_cast<float>(m_Swapchain.GetExtent().height);
+	viewport.minDepth = 0.0f;
+	viewport.maxDepth = 1.0f;
+	vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+	VkRect2D scissor{};
+	scissor.offset = { 0, 0 };
+	scissor.extent = m_Swapchain.GetExtent();
+	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+	// bind pipeline and draw
+	m_Pipeline.Bind(commandBuffer);
+	vkCmdDraw(commandBuffer, 3, 1, 0, 0); // 3 vertices, hardcoded triangle
+
+	vkCmdEndRendering(commandBuffer);
+
+	// transition to present
+	image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+		VK_ACCESS_2_NONE);
 
 	currentFrame.EndCommands();
 

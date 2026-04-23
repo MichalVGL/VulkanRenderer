@@ -2,7 +2,7 @@
 
 #include "Device.h"
 
-void dae::Swapchain::Init(const Device& device, const Window& window)
+void dae::Swapchain::Init(const Device& device, const Window& window, uint32_t& framesInFlight)
 {
 	//verify input
 	if (window.IsInitialized() == false)
@@ -23,27 +23,35 @@ void dae::Swapchain::Init(const Device& device, const Window& window)
 	m_DeletionQueue.Flush();
 
 	//get swapchain support details and imagecount
-	SwapChainSupportDetails swapChainSupport = QuerySwapChainSupport(device);
+	SwapChainSupportDetails swapChainSupport = QuerySwapChainSupport(device.GetPhysicalDevice(), device.GetSurface());
 
 	VkSurfaceFormatKHR surfaceFormat = ChooseSwapSurfaceFormat(swapChainSupport.formats);
 	VkPresentModeKHR presentMode = ChooseSwapPresentMode(swapChainSupport.presentModes);
 	VkExtent2D extent = ChooseSwapExtent(swapChainSupport.capabilities, pWindow);
-
-	uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-	if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
-		imageCount = swapChainSupport.capabilities.maxImageCount;
+	
+	//check if frames in flight is within the supported image count of the swapchain, if not adjust it
+		// if maxImageCount is 0, there is no limit on the number of images in the swapchain
+	if(swapChainSupport.capabilities.maxImageCount > 0 && framesInFlight > swapChainSupport.capabilities.maxImageCount)
+	{
+		framesInFlight = swapChainSupport.capabilities.maxImageCount;
+		std::cout << "[SwapChain.cpp] frames in flight given in initialization is higher than the maximum image count supported by the swapchain! Adjusting frames in flight to " << framesInFlight << " to fit the swapchain support.\n";
+	}
+	else if (framesInFlight < swapChainSupport.capabilities.minImageCount)
+	{
+		framesInFlight = swapChainSupport.capabilities.minImageCount;
+		std::cout << "[SwapChain.cpp] frames in flight given in initialization is lower than the minimum image count supported by the swapchain! Adjusting frames in flight to " << framesInFlight << " to fit the swapchain support.\n";
 	}
 
 	//create swapchain
 	VkSwapchainCreateInfoKHR createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
 	createInfo.surface = device.GetSurface();
-	createInfo.minImageCount = imageCount;
+	createInfo.minImageCount = framesInFlight;
 	createInfo.imageFormat = surfaceFormat.format;
 	createInfo.imageColorSpace = surfaceFormat.colorSpace;
 	createInfo.imageExtent = extent;
 	createInfo.imageArrayLayers = 1;
-	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT; //todo, add TRANSFER_DST_BIT for clear.
+	createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT; //todo, test without TRANSFER_DST_BIT for clear. (validation layers)
 
 	const QueueFamilyIndices& indices = device.GetQueueFamilyIndices();
 	uint32_t queueFamilyIndices[2] = { indices.graphicsFamily.value(), indices.presentFamily.value() };
@@ -76,25 +84,27 @@ void dae::Swapchain::Init(const Device& device, const Window& window)
 			});
 	}
 
-	//get swapchain images
-	vkGetSwapchainImagesKHR(device.GetLogicalDevice(), m_SwapChain, &imageCount, nullptr);
-	m_SwapChainImages.resize(imageCount);
-	vkGetSwapchainImagesKHR(device.GetLogicalDevice(), m_SwapChain, &imageCount, m_SwapChainImages.data());
+	//get swapchain images and create ImageRefs for them
+	vkGetSwapchainImagesKHR(device.GetLogicalDevice(), m_SwapChain, &framesInFlight, nullptr);
+	std::vector<VkImage> images{};
+	images.resize(framesInFlight);
+	vkGetSwapchainImagesKHR(device.GetLogicalDevice(), m_SwapChain, &framesInFlight, images.data());
+	m_SwapChainImages.resize(framesInFlight);
+	for (size_t i = 0; i < images.size(); i++) {
+		m_SwapChainImages[i] = std::make_unique<ImageRef>();
+		m_SwapChainImages[i]->Init(device, images[i], surfaceFormat.format, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+		m_DeletionQueue.PushDeleter(m_SwapChainImages[i]->GetDeletionFlush());
+	}
 
 	m_SwapChainImageFormat = surfaceFormat.format;
 	m_SwapChainExtent = extent;
 
-	//create image views
-	m_SwapChainImageViews.resize(m_SwapChainImages.size());
-	for (size_t i = 0; i < m_SwapChainImages.size(); i++) {
-		m_SwapChainImageViews[i] = dae::CreateImageView(device, m_SwapChainImages[i], m_SwapChainImageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
-
-		m_DeletionQueue.PushDeleter([this, i, logicalDevice = device.GetLogicalDevice()]()
-			{
-				vkDestroyImageView(logicalDevice, m_SwapChainImageViews[i], nullptr);
-				m_SwapChainImageViews[i] = VK_NULL_HANDLE;
-			});
-	}
+	m_DeletionQueue.PushDeleter([this, logicalDevice = device.GetLogicalDevice()]()
+		{
+			m_SwapChainImageFormat = VK_FORMAT_UNDEFINED;
+			m_SwapChainExtent = { 0,0 };
+			vkDeviceWaitIdle(logicalDevice);
+		});
 }
 
 bool dae::Swapchain::IsInitialized() const
@@ -103,42 +113,45 @@ bool dae::Swapchain::IsInitialized() const
 		&& !m_SwapChainImages.empty()
 		&& m_SwapChainImageFormat != VK_FORMAT_UNDEFINED
 		&& m_SwapChainExtent.width != 0
-		&& m_SwapChainExtent.height != 0
-		&& !m_SwapChainImageViews.empty();
+		&& m_SwapChainExtent.height != 0;
 }
 
-std::function<void()> dae::Swapchain::GetDeletionFlush() //todo, use this for other classes aswell and use them in renderer
+std::function<void()> dae::Swapchain::GetDeletionFlush()
 {
 	return std::function<void()>(
 		std::bind(&DeletionQueue::Flush, &m_DeletionQueue)
 	);
 }
 
-dae::SwapChainSupportDetails dae::Swapchain::QuerySwapChainSupport(const Device& device)
+dae::SwapChainSupportDetails dae::Swapchain::QuerySwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface)
 {
 	SwapChainSupportDetails details{};
-
-	VkPhysicalDevice physicalDevice = device.GetPhysicalDevice();
-	VkSurfaceKHR surface = device.GetSurface();
-
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &details.capabilities);
+	
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &details.capabilities);
 
 	uint32_t formatCount;
-	vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, nullptr);
+	vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr);
 
 	if (formatCount != 0) {
 		details.formats.resize(formatCount);
-		vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, surface, &formatCount, details.formats.data());
+		vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, details.formats.data());
 	}
 
 	uint32_t presentModeCount;
-	vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, nullptr);
+	vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr);
 	if (presentModeCount != 0) {
 		details.presentModes.resize(presentModeCount);
-		vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, surface, &presentModeCount, details.presentModes.data());
+		vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, details.presentModes.data());
 	}
 
 	return details;
+}
+
+bool dae::Swapchain::CheckSwapChainSupport(VkPhysicalDevice device, VkSurfaceKHR surface)
+{
+	SwapChainSupportDetails swapChainSupport = QuerySwapChainSupport(device, surface);
+	return !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty() 
+		&& swapChainSupport.capabilities.maxImageCount > 0; //
 }
 
 VkSurfaceFormatKHR dae::Swapchain::ChooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR>& availableFormats)
@@ -150,7 +163,7 @@ VkSurfaceFormatKHR dae::Swapchain::ChooseSwapSurfaceFormat(const std::vector<VkS
 	}
 
 	//could be handled by having fallback formats, but the project will not be adapted for these fallback options -> throw instead
-	
+
 	std::cerr << "[Swapchain.cpp] failed to find a suitable surface format!\n";
 	throw std::runtime_error("failed to find a suitable surface format!");
 }

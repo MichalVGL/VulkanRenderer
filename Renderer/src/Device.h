@@ -26,9 +26,13 @@ namespace dae
 		bool IsInitialized() const;
 		std::function<void()> GetDeletionFlush();
 
+		static bool CheckDeviceExtensionSupport(VkPhysicalDevice device);
+		static bool CheckDeviceFeatureSupport(VkPhysicalDevice device);
+
 	private:
 
 		void CreateInstance();
+		void SetupDebugMessenger();
 		void CreateSurface(GLFWwindow* pWindow);
 		void PickPhysicalDevice();
 		void CreateLogicalDevice();
@@ -41,10 +45,10 @@ namespace dae
 		VkInstance m_Instance{ VK_NULL_HANDLE };
 		VkPhysicalDevice m_PhysicalDevice{ VK_NULL_HANDLE };
 		VkDevice m_Device{ VK_NULL_HANDLE };
-
 		VmaAllocator m_Allocator{ VK_NULL_HANDLE };
-
 		VkSurfaceKHR m_Surface{ VK_NULL_HANDLE };
+
+		VkDebugUtilsMessengerEXT m_DebugMessenger{ VK_NULL_HANDLE };
 
 		QueueFamilyIndices m_QueueFamilyIndices{};
 		VkQueue m_GraphicsQueue{ VK_NULL_HANDLE };

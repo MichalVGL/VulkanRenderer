@@ -2,20 +2,8 @@
 
 #include <set>
 
-//todo, delete this temp code, use a better extension system
-std::vector<const char*> getRequiredExtensions() {
-	uint32_t glfwExtensionCount = 0;
-	const char** glfwExtensions;
-	glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-
-	std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwExtensionCount);
-
-	//if (enableValidationLayers) {
-	//	extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-	//}
-
-	return extensions;
-}
+#include "VulkanSetup.h"
+#include "Swapchain.h"
 
 void dae::Device::Init(const Window& window)
 {
@@ -31,6 +19,7 @@ void dae::Device::Init(const Window& window)
 	m_DeletionQueue.Flush();
 
 	CreateInstance();
+	SetupDebugMessenger();
 	CreateSurface(pWindow);
 	PickPhysicalDevice();
 	CreateLogicalDevice();
@@ -53,6 +42,40 @@ std::function<void()> dae::Device::GetDeletionFlush()
 	);
 }
 
+bool dae::Device::CheckDeviceExtensionSupport(VkPhysicalDevice device)
+{
+	uint32_t extensionCount;
+	vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+
+	std::vector<VkExtensionProperties> available(extensionCount);
+	vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, available.data());
+
+	for (const auto& required : g_DeviceExtensions)
+	{
+		bool found = false;
+		for (const auto& ext : available)
+		{
+			if (strcmp(required, ext.extensionName) == 0)
+			{
+				found = true;
+				break;
+			}
+		}
+		if (!found) return false;
+	}
+	return true;
+}
+
+bool dae::Device::CheckDeviceFeatureSupport(VkPhysicalDevice device)
+{
+	VulkanDeviceFeatures available{};
+	vkGetPhysicalDeviceFeatures2(device, &available.vulkanFeatures);
+
+	const VulkanDeviceFeatures& requested = dae::GetRequiredDeviceFeatures();
+
+	return dae::AreRequiredFeaturesAvailable(available, requested);
+}
+
 void dae::Device::CreateInstance()
 {
 	VkApplicationInfo appInfo{};
@@ -61,19 +84,30 @@ void dae::Device::CreateInstance()
 	appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
 	appInfo.pEngineName = "No Engine";
 	appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-	appInfo.apiVersion = VK_API_VERSION_1_0;
+	appInfo.apiVersion = VK_API_VERSION_1_3;
 
 	VkInstanceCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 	createInfo.pApplicationInfo = &appInfo;
 
-	auto extensions = getRequiredExtensions();
+	auto extensions = dae::GetRequiredInstanceExtensions();
 	createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
 	createInfo.ppEnabledExtensionNames = extensions.data();
 
-	//todo, add validation layers setup logic
-	createInfo.enabledLayerCount = 0;
-	createInfo.pNext = nullptr;
+	VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
+	if (g_EnableValidationLayers)
+	{
+		PopulateDebugMessengerCreateInfo(debugCreateInfo);
+	
+		createInfo.pNext = &debugCreateInfo;
+		createInfo.enabledLayerCount = static_cast<uint32_t>(dae::g_ValidationLayers.size());
+		createInfo.ppEnabledLayerNames = dae::g_ValidationLayers.data();
+	}
+	else
+	{
+		createInfo.enabledLayerCount = 0;
+		createInfo.ppEnabledLayerNames = nullptr;
+	}
 
 	if (vkCreateInstance(&createInfo, nullptr, &m_Instance) != VK_SUCCESS)
 		throw std::runtime_error("failed to create instance!");
@@ -83,6 +117,26 @@ void dae::Device::CreateInstance()
 			{
 				vkDestroyInstance(m_Instance, nullptr);
 				m_Instance = VK_NULL_HANDLE;
+			});
+	}
+}
+
+void dae::Device::SetupDebugMessenger()
+{
+	if (!g_EnableValidationLayers) return;
+
+	VkDebugUtilsMessengerCreateInfoEXT createInfo;
+	PopulateDebugMessengerCreateInfo(createInfo);
+
+	if (CreateDebugUtilsMessengerEXT(m_Instance, &createInfo, nullptr, &m_DebugMessenger) != VK_SUCCESS) {
+		throw std::runtime_error("failed to set up debug messenger!");
+	}
+	else
+	{
+		m_DeletionQueue.PushDeleter([this]()
+			{
+				DestroyDebugUtilsMessengerEXT(m_Instance, m_DebugMessenger, nullptr);
+				m_DebugMessenger = VK_NULL_HANDLE;
 			});
 	}
 }
@@ -143,27 +197,28 @@ void dae::Device::CreateLogicalDevice()
 		queueCreateInfos.push_back(queueCreateInfo);
 	}
 
-	VkPhysicalDeviceFeatures deviceFeatures{};
-	deviceFeatures.samplerAnisotropy = VK_TRUE;
-
 	VkDeviceCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 
 	createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
 	createInfo.pQueueCreateInfos = queueCreateInfos.data();
 
-	createInfo.pEnabledFeatures = &deviceFeatures;
+	createInfo.pEnabledFeatures = nullptr;
+	createInfo.pNext = &dae::GetRequiredDeviceFeatures().vulkanFeatures;
 
-	createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
-	createInfo.ppEnabledExtensionNames = deviceExtensions.data();
-	//
-	//if (enableValidationLayers) {
-	//	createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-	//	createInfo.ppEnabledLayerNames = validationLayers.data();
-	//}
-	//else {
-	createInfo.enabledLayerCount = 0;
-	//}
+	createInfo.enabledExtensionCount = static_cast<uint32_t>(dae::g_DeviceExtensions.size());
+	createInfo.ppEnabledExtensionNames = dae::g_DeviceExtensions.data();
+
+	if (g_EnableValidationLayers)
+	{
+		createInfo.enabledLayerCount = static_cast<uint32_t>(dae::g_ValidationLayers.size());
+		createInfo.ppEnabledLayerNames = dae::g_ValidationLayers.data();
+	}
+	else
+	{
+		createInfo.enabledLayerCount = 0;
+		createInfo.ppEnabledLayerNames = nullptr;
+	}
 
 	if (vkCreateDevice(m_PhysicalDevice, &createInfo, nullptr, &m_Device) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create logical device!");
@@ -201,26 +256,25 @@ void dae::Device::CreateAllocator()
 		});
 }
 
-//todo, delete this temp code, use a better extension system
 bool dae::Device::IsDeviceSuitable(VkPhysicalDevice device)
 {
-	QueueFamilyIndices indices = FindQueueFamilies(device, m_Surface);
-	//
-	//bool extensionsSupported = checkDeviceExtensionSupport(device);
-	//
-	//bool swapChainAdequate = false;
-	//if (extensionsSupported) {
-	//	SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device);
-	//	swapChainAdequate = !swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty();
-	//}
-	//
-	////week04 image extra
-	//VkPhysicalDeviceFeatures supportedFeatures;
-	//vkGetPhysicalDeviceFeatures(device, &supportedFeatures);
-	//
-	//return indices.isComplete() && extensionsSupported && swapChainAdequate && supportedFeatures.samplerAnisotropy;
+	if (m_Surface == VK_NULL_HANDLE)
+	{
+		std::cerr << "[Device.cpp] Surface is not initialized when checking device suitability!\n";
+		throw std::runtime_error("Surface is not initialized!");
+	}
 
-	return indices.IsComplete();
+	QueueFamilyIndices indices = FindQueueFamilies(device, m_Surface);
+
+	bool extensionsSupported = CheckDeviceExtensionSupport(device);
+
+	bool swapChainAdequate = false;
+	if (extensionsSupported)
+	{
+		swapChainAdequate = Swapchain::CheckSwapChainSupport(device, m_Surface);
+	}
+
+	return indices.IsComplete() && extensionsSupported && swapChainAdequate && CheckDeviceFeatureSupport(device);
 }
 
 dae::QueueFamilyIndices dae::Device::FindQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface)

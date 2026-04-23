@@ -15,13 +15,13 @@ namespace dae
 	{
 	public:
 
-		//Frame() = default;
-		//~Frame() = default;
-		//
-		//Frame(const Frame&) = delete;
-		//Frame(Frame&&) = delete;
-		//Frame& operator=(const Frame&) = delete;
-		//Frame& operator=(Frame&&) = delete;
+		Frame() = default;
+		~Frame() = default;
+		
+		Frame(const Frame&) = delete;
+		Frame(Frame&&) = delete;
+		Frame& operator=(const Frame&) = delete;
+		Frame& operator=(Frame&&) = delete;
 
 		void Init(const Device& device, VkCommandPool commandPool);
 

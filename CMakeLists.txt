@@ -32,7 +32,6 @@ FetchContent_Declare(
     stb
     GIT_REPOSITORY https://github.com/nothings/stb
     GIT_TAG "28d546d5eb77d4585506a20480f4de2e706dff4c"
-    GIT_SHALLOW    TRUE
 )
 FetchContent_Populate(stb)
 

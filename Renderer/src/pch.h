@@ -11,6 +11,8 @@
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <cmath>
+#include <filesystem>
 
 //vulkan and glfw
 #define GLFW_INCLUDE_VULKAN 
@@ -24,10 +26,11 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/quaternion.hpp>
 
-//todo, include assimp libraries when needed
 //assimp
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
+#include <assimp/postprocess.h>
 
 #endif // !PCH_H

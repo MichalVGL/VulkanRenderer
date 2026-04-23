@@ -32,7 +32,7 @@ void dae::Frame::WaitForFence(const Device& device)
 
 void dae::Frame::ResetFence(const Device& device)
 {
-	//todo,make
+	vkResetFences(device.GetLogicalDevice(), 1, &m_InFlightFence);
 }
 
 VkCommandBuffer dae::Frame::BeginCommands()
@@ -46,7 +46,7 @@ VkCommandBuffer dae::Frame::BeginCommands()
 		throw std::runtime_error("failed to begin recording command buffer!");
 	}
 
-	//todo start here
+	//todo add rendering
 	//vkCmdBeginRendering(m_CommandBuffer, ...);
 
 	return m_CommandBuffer;
@@ -61,24 +61,36 @@ void dae::Frame::EndCommands()
 
 void dae::Frame::Submit(const Device& device)
 {
-	VkSubmitInfo submitInfo{};
-	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	VkSemaphoreSubmitInfo waitSemaphoreInfo{};
+	waitSemaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+	waitSemaphoreInfo.semaphore = m_ImageAvailableSemaphore;
+	waitSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	waitSemaphoreInfo.value = 0;
+	waitSemaphoreInfo.deviceIndex = 0;
 
-	//todo, maybe add this??
-	//VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-	submitInfo.waitSemaphoreCount = 1;
-	submitInfo.pWaitSemaphores = &m_ImageAvailableSemaphore;
-	//submitInfo.pWaitDstStageMask = waitStages;
+	VkSemaphoreSubmitInfo signalSemaphoreInfo{};
+	signalSemaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+	signalSemaphoreInfo.semaphore = m_RenderFinishedSemaphore;
+	signalSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+	signalSemaphoreInfo.value = 0;
+	signalSemaphoreInfo.deviceIndex = 0;
 
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &m_CommandBuffer;
+	VkCommandBufferSubmitInfo cmdInfo{};
+	cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+	cmdInfo.commandBuffer = m_CommandBuffer;
+	cmdInfo.deviceMask = 0;
 
-	submitInfo.signalSemaphoreCount = 1;
-	submitInfo.pSignalSemaphores = &m_RenderFinishedSemaphore;
+	VkSubmitInfo2 submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+	submitInfo.waitSemaphoreInfoCount = 1;
+	submitInfo.pWaitSemaphoreInfos = &waitSemaphoreInfo;
+	submitInfo.commandBufferInfoCount = 1;
+	submitInfo.pCommandBufferInfos = &cmdInfo;
+	submitInfo.signalSemaphoreInfoCount = 1;
+	submitInfo.pSignalSemaphoreInfos = &signalSemaphoreInfo;
 
-	if (vkQueueSubmit(device.GetGraphicsQueue(), 1, &submitInfo, m_InFlightFence) != VK_SUCCESS) {
+	if (vkQueueSubmit2(device.GetGraphicsQueue(), 1, &submitInfo, m_InFlightFence) != VK_SUCCESS)
 		throw std::runtime_error("failed to submit draw command buffer!");
-	}
 }
 
 void dae::Frame::Present(const Device& device, const Swapchain& swapchain, uint32_t imageIndex)

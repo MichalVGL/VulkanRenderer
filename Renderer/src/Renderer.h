@@ -9,6 +9,7 @@
 #include "Swapchain.h"
 #include "Window.h"
 #include "Frame.h"
+#include "Pipeline.h"
 
 namespace dae
 {
@@ -22,7 +23,7 @@ namespace dae
 		Renderer() = default;
 
 		void Init(const Window* pWindow);
-
+		
 		void DrawFrame();
 
 	private:
@@ -36,12 +37,13 @@ namespace dae
 		const Window* m_pWindow{};
 		Device m_Device{};
 		Swapchain m_Swapchain{};
+		Pipeline m_Pipeline{};
 
 		VkCommandPool m_CommandPool{};
 
 		std::vector<std::unique_ptr<Frame>> m_Frames{};
 		int m_CurrentFrame{ 0 };
-		int m_MaxFramesInFlight{ 2 };
+		uint32_t m_MaxFramesInFlight{ 3 };
 
 		DeletionQueue m_DeletionQueue{};
 	};
