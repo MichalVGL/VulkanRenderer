@@ -19,6 +19,7 @@ namespace dae
 		VkPolygonMode polygonMode{ VK_POLYGON_MODE_FILL };
 		VkCullModeFlags cullMode{ VK_CULL_MODE_BACK_BIT };
 		VkFrontFace frontFace{ VK_FRONT_FACE_COUNTER_CLOCKWISE };
+		bool useVertexPulling{ false };
 
 		bool HasMinimalRequiredInfo() const
 		{

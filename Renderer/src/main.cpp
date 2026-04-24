@@ -2,9 +2,13 @@
 #include "Renderer.h"
 #include "Window.h"
 #include "InputHandler.h"
+#include "Scene.h"
+
+#include <chrono>
 
 int main()
 {
+	dae::DeletionQueue mainDeletionQueue{};
 	
 	// Window
 	dae::Window window{};
@@ -16,36 +20,31 @@ int main()
 	// Renderer
 	dae::Renderer renderer{};
 	renderer.Init(&window);
+	mainDeletionQueue.PushDeleter(renderer.GetDeletionFlush());
+
+	// Scene
+	dae::Scene scene{};
+	scene.Init("resources/gltf/Sponza/Sponza.gltf", renderer);
+	mainDeletionQueue.PushDeleter(scene.GetDeletionFlush());
+
+	auto lastTime = std::chrono::high_resolution_clock::now();
 
 	// Main loop
 	while (!window.ShouldClose())
 	{
-		inputHandler.Update();
+		auto currentTime = std::chrono::high_resolution_clock::now();
+		float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
+		lastTime = currentTime;
 
-		renderer.DrawFrame();
+		inputHandler.Update();
+		scene.Update(deltaTime, inputHandler);
+
+		renderer.DrawFrame(scene);
 
 		glfwPollEvents();
 	}
-	
 
-	//Assimp::Importer importer;
-	//
-	//const aiScene* scene = importer.ReadFile(
-	//	"resources/gltf/Sponza/Sponza.gltf",
-	//	aiProcess_Triangulate |
-	//	aiProcess_JoinIdenticalVertices |
-	//	aiProcess_GenNormals |
-	//	aiProcess_CalcTangentSpace
-	//);
-	//
-	//if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
-	//	std::cout << "Error loading model: "
-	//		<< importer.GetErrorString() << std::endl;
-	//	return -1;
-	//}
-	//
-	//std::cout << "Successfully loaded glTF!" << std::endl;
-	//std::cout << "Meshes: " << scene->mNumMeshes << std::endl;
+	mainDeletionQueue.Flush();
 
 	return 0;
 }

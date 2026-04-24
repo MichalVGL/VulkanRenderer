@@ -33,4 +33,7 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+//stb
+#include <stb_image.h>
+
 #endif // !PCH_H

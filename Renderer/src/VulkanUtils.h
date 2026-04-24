@@ -19,13 +19,6 @@ namespace dae
 		|| std::same_as<T, VkPhysicalDeviceVulkan11Features>
 		|| std::same_as<T, VkPhysicalDeviceFeatures2>;
 
-	//Type Aliases
-
-	// signals that the resource is managed by that class (prevent confusion from raw pointers)
-	//template<typename T>
-	//using ManagedPtr = T*;
-	//todo, delete if unused
-
 	//===============================
 	// Structs
 	//===============================
@@ -71,6 +64,12 @@ namespace dae
 		VkPhysicalDeviceVulkan12Features vulkan12Features{};
 		VkPhysicalDeviceVulkan11Features vulkan11Features{};
 		VkPhysicalDeviceFeatures2 vulkanFeatures{};
+	};
+
+	struct PushConstants
+	{
+		glm::mat4 transform{};        // 64 bytes
+		//uint64_t vertexBufferAddress{}; // 8 bytes
 	};
 
 	//===============================

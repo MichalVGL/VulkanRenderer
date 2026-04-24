@@ -78,6 +78,8 @@ namespace dae
 		void TransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout
 			, std::optional<VkPipelineStageFlags2> destinationFlags = std::nullopt, std::optional<VkAccessFlags2> destinationAccessMask = std::nullopt);
 
+		void GenerateMipmaps(VkCommandBuffer cmd, int32_t texWidth, int32_t texHeight);
+
 		VkImage GetImage() const { return m_ImageRef.GetImage(); }
 		VkImageView GetImageView() const { return m_ImageRef.GetImageView(); }
 		VkImageLayout GetCurrentLayout() const { return m_ImageRef.GetCurrentLayout(); }
@@ -93,6 +95,8 @@ namespace dae
 		VmaAllocation m_Allocation{ VK_NULL_HANDLE };
 
 		ImageRef m_ImageRef{};
+
+		DeletionQueue m_DeletionQueue{};
 	};
 }
 

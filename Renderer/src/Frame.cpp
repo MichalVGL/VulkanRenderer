@@ -46,9 +46,6 @@ VkCommandBuffer dae::Frame::BeginCommands()
 		throw std::runtime_error("failed to begin recording command buffer!");
 	}
 
-	//todo add rendering
-	//vkCmdBeginRendering(m_CommandBuffer, ...);
-
 	return m_CommandBuffer;
 }
 
@@ -64,7 +61,7 @@ void dae::Frame::Submit(const Device& device)
 	VkSemaphoreSubmitInfo waitSemaphoreInfo{};
 	waitSemaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
 	waitSemaphoreInfo.semaphore = m_ImageAvailableSemaphore;
-	waitSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	waitSemaphoreInfo.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 	waitSemaphoreInfo.value = 0;
 	waitSemaphoreInfo.deviceIndex = 0;
 

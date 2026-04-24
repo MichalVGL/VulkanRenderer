@@ -31,22 +31,10 @@ void dae::Camera::Update(float deltaTime, const dae::InputHandler& input)
 	{
 		keyDirection = glm::normalize(keyDirection);
 
-		//glm::quat qYaw = glm::angleAxis(m_Yaw, g_Up);
-		//
-		//// rotate right axis by yaw 
-		//glm::vec3 right = qYaw * g_Right;
-		//
-		//glm::quat qPitch = glm::angleAxis(m_Pitch, right);
-		//
-		//// combine in same order
-		//glm::quat rotation = qYaw * qPitch;
-		//
-		//keyDirection = rotation * keyDirection;
-
 		glm::vec3 worldDir =
 			keyDirection.x * m_Right +
 			keyDirection.y * m_Up +
-			keyDirection.z * m_Forward;
+			keyDirection.z * -m_Forward;
 
 		SetOrigin(m_Origin += (worldDir * deltaTime * speed));
 	}
@@ -55,21 +43,21 @@ void dae::Camera::Update(float deltaTime, const dae::InputHandler& input)
 	if (input.IsMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT) && input.IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT))
 	{
 		//Get the Y movement of the mouse and add to the world height of the camera (unitY)
-		glm::vec3 moveDirection{ g_Up * static_cast<float>(-input.GetMouseY()) * m_MouseSpeed };
+		glm::vec3 moveDirection{ g_Up * static_cast<float>(input.GetMouseDelta().y) * m_MouseSpeed };
 		SetOrigin(m_Origin += (moveDirection));
 	}
 	else if (input.IsMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT))
 	{
 		//Set yaw and pitch according to mouse Y/X
-		SetPitch(m_Pitch += glm::radians(static_cast<float>(-input.GetMouseY()) * m_RotationSensitivity));
-		SetYaw(m_Yaw += glm::radians(static_cast<float>(input.GetMouseX()) * m_RotationSensitivity));
+		SetPitch(m_Pitch += glm::radians(static_cast<float>(-input.GetMouseDelta().y) * m_RotationSensitivity));
+		SetYaw(m_Yaw += glm::radians(static_cast<float>(input.GetMouseDelta().x) * m_RotationSensitivity));
 	}
 	else if (input.IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT))
 	{
 		//Get the Y movement of the mouse and add to the forward vector of the camera
-		SetYaw(m_Yaw += glm::radians(static_cast<float>(input.GetMouseX()) * m_RotationSensitivity));
+		SetYaw(m_Yaw += glm::radians(static_cast<float>(input.GetMouseDelta().x) * m_RotationSensitivity));
 
-		glm::vec3 mouseDirection{ g_Forward * static_cast<float>(-input.GetMouseY()) * m_MouseSpeed };	// camera space vector
+		glm::vec3 mouseDirection{ g_Forward * static_cast<float>(-input.GetMouseDelta().y) * m_MouseSpeed };	// camera space vector
 
 		glm::vec3 worldDir =
 			mouseDirection.x * m_Right +
@@ -96,6 +84,11 @@ void dae::Camera::SetFOV(float angle)
 {
 	m_FovAngle = angle;
 	CalculateFOVAspect();
+}
+
+float dae::Camera::GetFOV() const
+{
+	return m_FovAngle;
 }
 
 float dae::Camera::GetFOVAspect() const
@@ -140,7 +133,7 @@ void dae::Camera::CalculateDirections()
 {
 	m_Forward.x = cosf(m_Pitch) * sinf(m_Yaw);
 	m_Forward.y = sinf(m_Pitch);
-	m_Forward.z = cosf(m_Pitch) * cosf(m_Yaw);
+	m_Forward.z = -cosf(m_Pitch) * cosf(m_Yaw);
 	m_Forward = glm::normalize(m_Forward);
 
 	m_Right = glm::normalize(glm::cross(g_Up, m_Forward));

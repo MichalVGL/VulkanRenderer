@@ -3,6 +3,7 @@
 #include <fstream>
 
 #include "Device.h"
+#include "GraphicsTypes.h"
 
 void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 {
@@ -58,8 +59,16 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	// vertex input, empty for vertex pulling
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	vertexInputInfo.vertexBindingDescriptionCount = 0;
-	vertexInputInfo.vertexAttributeDescriptionCount = 0;
+	//vertexInputInfo.vertexBindingDescriptionCount = 0;
+	//vertexInputInfo.vertexAttributeDescriptionCount = 0;
+	auto binding = Vertex::GetBindingDescription();
+	auto attributes = Vertex::GetAttributeDescriptions();
+
+	vertexInputInfo.vertexBindingDescriptionCount = 1;
+	vertexInputInfo.pVertexBindingDescriptions = &binding;
+	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
+	vertexInputInfo.pVertexAttributeDescriptions = attributes.data();
+
 
 	// input assembly
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -115,6 +124,14 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutInfo.setLayoutCount = 0;
 	pipelineLayoutInfo.pushConstantRangeCount = 0;
+
+	VkPushConstantRange pushRange{};
+	pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	pushRange.offset = 0;
+	pushRange.size = sizeof(PushConstants);
+
+	pipelineLayoutInfo.pushConstantRangeCount = 1;
+	pipelineLayoutInfo.pPushConstantRanges = &pushRange;
 
 	if (vkCreatePipelineLayout(device.GetLogicalDevice(), &pipelineLayoutInfo, nullptr, &m_PipelineLayout) != VK_SUCCESS)
 		throw std::runtime_error("[Pipeline.cpp] failed to create pipeline layout!");

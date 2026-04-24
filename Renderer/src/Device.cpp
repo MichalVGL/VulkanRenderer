@@ -95,11 +95,23 @@ void dae::Device::CreateInstance()
 	createInfo.ppEnabledExtensionNames = extensions.data();
 
 	VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
+	VkValidationFeaturesEXT validationFeatures{};
 	if (g_EnableValidationLayers)
 	{
 		PopulateDebugMessengerCreateInfo(debugCreateInfo);
 	
-		createInfo.pNext = &debugCreateInfo;
+		// enable debug printf
+		static VkValidationFeatureEnableEXT enables[] = {
+			VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT
+		};
+		validationFeatures.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+		validationFeatures.enabledValidationFeatureCount = 1;
+		validationFeatures.pEnabledValidationFeatures = enables;
+
+		// chain: createInfo -> validationFeatures -> debugCreateInfo
+		validationFeatures.pNext = &debugCreateInfo;
+
+		createInfo.pNext = &validationFeatures;
 		createInfo.enabledLayerCount = static_cast<uint32_t>(dae::g_ValidationLayers.size());
 		createInfo.ppEnabledLayerNames = dae::g_ValidationLayers.data();
 	}
@@ -245,6 +257,7 @@ void dae::Device::CreateAllocator()
 	allocatorInfo.physicalDevice = m_PhysicalDevice;
 	allocatorInfo.device = m_Device;
 	allocatorInfo.instance = m_Instance;
+	allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
 
 	if (vmaCreateAllocator(&allocatorInfo, &m_Allocator) != VK_SUCCESS)
 		throw std::runtime_error("failed to create VMA allocator!");

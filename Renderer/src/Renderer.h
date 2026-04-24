@@ -15,6 +15,7 @@ namespace dae
 {
 
 	class Frame;
+	class Scene;
 
 	class Renderer final
 	{
@@ -24,12 +25,19 @@ namespace dae
 
 		void Init(const Window* pWindow);
 		
-		void DrawFrame();
+		void DrawFrame(const Scene& scene);
+
+		const Device& GetDevice() const { return m_Device; }
+		const Swapchain& GetSwapchain() const { return m_Swapchain; }
+		const Pipeline& GetPipeline() const { return m_Pipeline; }
+		VkCommandPool GetCommandPool() const { return m_CommandPool; }
+
+		std::function<void()> GetDeletionFlush();
 
 	private:
 
+		void DrawScene(VkCommandBuffer cmd, const Scene& scene);
 		void CreateCommandPool();
-
 		void DeleteResources();
 
 		bool m_IsInitialized{ false };

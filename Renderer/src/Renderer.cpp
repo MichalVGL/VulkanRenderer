@@ -1,6 +1,7 @@
 #include "Renderer.h"
 
 #include "VulkanSetup.h"
+#include "Scene.h"
 
 void dae::Renderer::Init(const Window* pWindow)
 {
@@ -41,9 +42,12 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	// Pipeline
 	PipelineInfo pipelineInfo{};
-	pipelineInfo.vertexShaderFilePath = "resources/shaders/triangle.vert.spv";
-	pipelineInfo.fragmentShaderFilePath = "resources/shaders/triangle.frag.spv";
+	pipelineInfo.vertexShaderFilePath = "resources/shaders/test.vert.spv";
+	pipelineInfo.fragmentShaderFilePath = "resources/shaders/test.frag.spv";
 	pipelineInfo.colorAttachmentFormat = m_Swapchain.GetImageFormat();
+	pipelineInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+	pipelineInfo.cullMode = VK_CULL_MODE_NONE; //todo, change
+	pipelineInfo.useVertexPulling = false; //todo, change
 
 	m_Pipeline.Init(m_Device, pipelineInfo);
 	m_DeletionQueue.PushDeleter(m_Pipeline.GetDeletionFlush());
@@ -68,7 +72,7 @@ void dae::Renderer::Init(const Window* pWindow)
 	m_IsInitialized = true;
 }
 
-void dae::Renderer::DrawFrame()
+void dae::Renderer::DrawFrame(const Scene& scene)
 {
 	Frame& currentFrame = *m_Frames[m_CurrentFrame];
 
@@ -131,7 +135,7 @@ void dae::Renderer::DrawFrame()
 
 	// bind pipeline and draw
 	m_Pipeline.Bind(commandBuffer);
-	vkCmdDraw(commandBuffer, 3, 1, 0, 0); // 3 vertices, hardcoded triangle
+	DrawScene(commandBuffer, scene);
 
 	vkCmdEndRendering(commandBuffer);
 
@@ -146,6 +150,78 @@ void dae::Renderer::DrawFrame()
 	currentFrame.Present(m_Device, m_Swapchain, imageIndex);
 
 	m_CurrentFrame = (m_CurrentFrame + 1) % m_MaxFramesInFlight;
+}
+
+std::function<void()> dae::Renderer::GetDeletionFlush()
+{
+	return std::function<void()>(
+		std::bind(&DeletionQueue::Flush, &m_DeletionQueue)
+	);
+}
+
+void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene)
+{
+	//glm::mat4 view = glm::lookAt(
+	//	glm::vec3(0.0f, 100.0f, 0.0f),  // above the scene
+	//	glm::vec3(0.0f, 0.0f, 0.0f),    // looking at origin
+	//	glm::vec3(0.0f, 0.0f, 1.0f)     // up is Z for top-down
+	//);
+	//
+	//glm::mat4 proj = glm::perspective(
+	//	glm::radians(90.0f),
+	//	static_cast<float>(m_Swapchain.GetExtent().width) /
+	//	static_cast<float>(m_Swapchain.GetExtent().height),
+	//	0.1f, 10000.0f  // far plane very large for Sponza
+	//);
+	//proj[1][1] *= -1;
+	//
+	//glm::mat4 viewProj = proj * view;
+
+	// 1. Get the View Matrix from the Scene's Camera
+	glm::mat4 view = scene.GetCamera().GetCameraToWorld();
+
+	// 2. Create the Projection Matrix
+	// Note: We use the camera's FOV (in radians) and the swapchain's aspect ratio
+	glm::mat4 proj = glm::perspective(
+		glm::radians(scene.GetCamera().GetFOV()),
+		static_cast<float>(m_Swapchain.GetExtent().width) / static_cast<float>(m_Swapchain.GetExtent().height),
+		scene.GetCamera().m_Near, // Assuming you exposed m_Near/m_Far or have getters
+		scene.GetCamera().m_Far
+	);
+
+	// 3. Flip the Y-axis for Vulkan (since glm was designed for OpenGL)
+	proj[1][1] *= -1;
+
+	// 4. Multiply them to get the View-Projection matrix
+	glm::mat4 viewProj = proj * view;
+
+	for (const auto& renderObject : scene.GetRenderObjects())
+	{
+		if (!renderObject.pMesh) continue;
+
+		PushConstants push{};
+		push.transform = viewProj * renderObject.transform;
+		//push.vertexBufferAddress = renderObject.pMesh->GetVertexBufferAddress(m_Device);
+
+
+		vkCmdPushConstants(cmd, m_Pipeline.GetPipelineLayout(),
+			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+			0, sizeof(PushConstants), &push);
+
+		VkBuffer vertexBuffers[] = { renderObject.pMesh->GetVertexBuffer().GetBuffer() };
+		VkDeviceSize offsets[] = { 0 };
+		vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+
+		vkCmdBindIndexBuffer(cmd,
+			renderObject.pMesh->GetIndexBuffer().GetBuffer(),
+			0, VK_INDEX_TYPE_UINT32);
+
+		for (const auto& primitive : renderObject.pMesh->GetPrimitives())
+		{
+			vkCmdDrawIndexed(cmd, primitive.indexCount, 1,
+				primitive.firstIndex, 0, 0);
+		}
+	}
 }
 
 void dae::Renderer::CreateCommandPool()

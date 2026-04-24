@@ -23,6 +23,7 @@ namespace dae
 		glm::vec3 GetOrigin() const;
 
 		void SetFOV(float angle);	//in degrees
+		float GetFOV() const;		//in degrees
 		float GetFOVAspect() const;	//returns tan(fov/2) saved in a member var
 
 		void SetPitch(float pitch);	//in radians
@@ -41,7 +42,7 @@ namespace dae
 
 		void CalculateDirections();
 
-		glm::vec3 m_Origin{};
+		glm::vec3 m_Origin{ 0.f, 0.f, 0.f };
 		float m_FovAngle{ 90.f };
 		float m_FOVAspect{};	//tan(fov/2)
 
@@ -51,8 +52,8 @@ namespace dae
 		glm::vec3 m_Up{ glm::vec3(0.f, 1.f, 0.f) };
 		glm::vec3 m_Right{ glm::vec3(1.f, 0.f, 0.f) };
 		static constexpr float s_MaxPitch{ glm::radians(89.9f) };
-		float m_Pitch{};	//radians
-		float m_Yaw{};
+		float m_Pitch{ 0.f };	//radians
+		float m_Yaw{ 0.f };
 
 		float m_BaseSpeed{ 20.f };	//wasd
 		float m_MouseSpeed{ 0.03f };

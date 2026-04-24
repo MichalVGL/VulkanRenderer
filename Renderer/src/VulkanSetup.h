@@ -46,7 +46,6 @@ namespace dae
 		//other requirements
 		std::initializer_list<const char*> otherExtensions = {
 			//add them here
-
 		};
 
 		extensions.reserve(extensions.size() + otherExtensions.size());
@@ -60,7 +59,8 @@ namespace dae
 	//===============================
 
 	inline const std::vector<const char*> g_DeviceExtensions = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+		VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME
 	};
 
 	//===============================
@@ -78,12 +78,16 @@ namespace dae
 			requiredDeviceFeatures.vulkan13Features.dynamicRendering = VK_TRUE;
 			requiredDeviceFeatures.vulkan13Features.synchronization2 = VK_TRUE;
 
+			requiredDeviceFeatures.vulkan12Features.bufferDeviceAddress = VK_TRUE;
 			requiredDeviceFeatures.vulkan12Features.runtimeDescriptorArray = VK_TRUE;
 			requiredDeviceFeatures.vulkan12Features.descriptorBindingPartiallyBound = VK_TRUE;
 			requiredDeviceFeatures.vulkan12Features.descriptorBindingVariableDescriptorCount = VK_TRUE;
 			requiredDeviceFeatures.vulkan12Features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
 			requiredDeviceFeatures.vulkan12Features.descriptorIndexing = VK_TRUE;
 			requiredDeviceFeatures.vulkan12Features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+			requiredDeviceFeatures.vulkan12Features.scalarBlockLayout = VK_TRUE;
+
+			requiredDeviceFeatures.vulkanFeatures.features.shaderInt64 = VK_TRUE;
 
 			initialized = true;
 		}
