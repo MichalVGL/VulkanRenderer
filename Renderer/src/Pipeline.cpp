@@ -23,6 +23,8 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	m_DeletionQueue.Flush(); // in case of reinitialization
 	m_Info = info;
 
+	//todo, allow fragment shader to be optional and create a depth prepass in renderer
+
 	// load and create shader modules
 	std::vector<uint32_t> vertCode = ReadShaderFile(info.vertexShaderFilePath);
 	std::vector<uint32_t> fragCode = ReadShaderFile(info.fragmentShaderFilePath);
@@ -59,16 +61,6 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	// vertex input, empty for vertex pulling
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	//vertexInputInfo.vertexBindingDescriptionCount = 0;
-	//vertexInputInfo.vertexAttributeDescriptionCount = 0;
-	//auto binding = Vertex::GetBindingDescription();
-	//auto attributes = Vertex::GetAttributeDescriptions();
-	//
-	//vertexInputInfo.vertexBindingDescriptionCount = 1;
-	//vertexInputInfo.pVertexBindingDescriptions = &binding;
-	//vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
-	//vertexInputInfo.pVertexAttributeDescriptions = attributes.data();
-
 
 	// input assembly
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
@@ -262,18 +254,18 @@ bool dae::Pipeline::ValidatePipelineInfo(const PipelineInfo& info) const
 	}
 
 	// check fragment shader
-	if (!std::filesystem::exists(info.fragmentShaderFilePath))
+	if (!info.fragmentShaderFilePath.empty()) //valid for depth prepass
 	{
-		std::cerr << "[Pipeline.cpp] Fragment shader file does not exist: "
-			<< info.fragmentShaderFilePath << "\n";
-		return false;
-	}
-
-	if (info.fragmentShaderFilePath.extension() != ".spv")
-	{
-		std::cerr << "[Pipeline.cpp] Fragment shader file is not a .spv file: "
-			<< info.fragmentShaderFilePath << "\n";
-		return false;
+		if (!std::filesystem::exists(info.fragmentShaderFilePath))
+		{
+			std::cerr << "[Pipeline.cpp] Fragment shader file does not exist: " << info.fragmentShaderFilePath << "\n";
+			return false;
+		}
+		if (info.fragmentShaderFilePath.extension() != ".spv")
+		{
+			std::cerr << "[Pipeline.cpp] Fragment shader file is not a .spv: " << info.fragmentShaderFilePath << "\n";
+			return false;
+		}
 	}
 
 	return true;

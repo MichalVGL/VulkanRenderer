@@ -23,9 +23,7 @@ namespace dae
 
 		bool HasMinimalRequiredInfo() const
 		{
-			return !vertexShaderFilePath.empty()
-				&& !fragmentShaderFilePath.empty()
-				&& colorAttachmentFormat != VK_FORMAT_UNDEFINED;
+			return !vertexShaderFilePath.empty();;
 		}
 	};
 
