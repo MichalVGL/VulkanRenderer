@@ -55,8 +55,11 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
         }
         else
         {
+#ifdef DEBUG
+            std::cout << "Material " << i << " has no diffuse texture. Using default white texture." << std::endl;
+#endif // DEBUG
+
             // Fallback
-			std::cout << "Material " << i << " has no diffuse texture. Using default white texture." << std::endl;
             pNewMaterial->diffuseTextureIndex = 0;
         }
 
