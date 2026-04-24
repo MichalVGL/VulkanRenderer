@@ -531,7 +531,10 @@ FodyWeavers.xsd
 
 # CUSTOM
 
+*.spv
+
 !viking_room.obj
+
 
 ### VisualStudio Patch ###
 # Additional files built by Visual Studio
