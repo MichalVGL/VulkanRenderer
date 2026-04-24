@@ -24,12 +24,6 @@ void dae::Renderer::Init(const Window* pWindow)
 		DeleteResources(); //todo, remove this and make a reinit function
 	}
 
-	//todo, add initialization code here
-	//	extension, vulkan, ...0
-	//todo, add code to create a size given externally
-
-	//
-
 	// Device
 	m_Device.Init(*m_pWindow);
 	m_DeletionQueue.PushDeleter(m_Device.GetDeletionFlush());
@@ -40,14 +34,23 @@ void dae::Renderer::Init(const Window* pWindow)
 	m_Swapchain.Init(m_Device, *m_pWindow, m_MaxFramesInFlight); //might change max frames in flight
 	m_DeletionQueue.PushDeleter(m_Swapchain.GetDeletionFlush());
 
+	// Depth image
+	VkExtent2D extent = m_Swapchain.GetExtent();
+	m_DepthImage.Init(m_Device, extent.width, extent.height,
+		VK_FORMAT_D32_SFLOAT,
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+	m_DeletionQueue.PushDeleter(m_DepthImage.GetDeletionFlush());
+
 	// Pipeline
 	PipelineInfo pipelineInfo{};
-	pipelineInfo.vertexShaderFilePath = "resources/shaders/test.vert.spv";
-	pipelineInfo.fragmentShaderFilePath = "resources/shaders/test.frag.spv";
+	pipelineInfo.vertexShaderFilePath = "resources/shaders/diffuse.vert.spv";
+	pipelineInfo.fragmentShaderFilePath = "resources/shaders/diffuse.frag.spv";
 	pipelineInfo.colorAttachmentFormat = m_Swapchain.GetImageFormat();
-	pipelineInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
-	pipelineInfo.cullMode = VK_CULL_MODE_NONE; //todo, change
-	pipelineInfo.useVertexPulling = false; //todo, change
+	pipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	pipelineInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	pipelineInfo.useVertexPulling = true;
+	pipelineInfo.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
 
 	m_Pipeline.Init(m_Device, pipelineInfo);
 	m_DeletionQueue.PushDeleter(m_Pipeline.GetDeletionFlush());
@@ -99,6 +102,9 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+	m_DepthImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
 
 	// begin rendering
 	VkRenderingAttachmentInfo colorAttachment{};
@@ -109,12 +115,21 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	colorAttachment.clearValue.color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
 
+	VkRenderingAttachmentInfo depthAttachment{};
+	depthAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	depthAttachment.imageView = m_DepthImage.GetImageView(); // Assuming GetImageView() returns m_ImageView
+	depthAttachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	depthAttachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE; // We don't need to save the depth data after the frame is done
+	depthAttachment.clearValue.depthStencil.depth = 1.0f;
+
 	VkRenderingInfo renderingInfo{};
 	renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 	renderingInfo.renderArea = { {0, 0}, m_Swapchain.GetExtent() };
 	renderingInfo.layerCount = 1;
 	renderingInfo.colorAttachmentCount = 1;
 	renderingInfo.pColorAttachments = &colorAttachment;
+	renderingInfo.pDepthAttachment = &depthAttachment;
 
 	vkCmdBeginRendering(commandBuffer, &renderingInfo);
 
@@ -161,26 +176,13 @@ std::function<void()> dae::Renderer::GetDeletionFlush()
 
 void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene)
 {
-	//glm::mat4 view = glm::lookAt(
-	//	glm::vec3(0.0f, 100.0f, 0.0f),  // above the scene
-	//	glm::vec3(0.0f, 0.0f, 0.0f),    // looking at origin
-	//	glm::vec3(0.0f, 0.0f, 1.0f)     // up is Z for top-down
-	//);
-	//
-	//glm::mat4 proj = glm::perspective(
-	//	glm::radians(90.0f),
-	//	static_cast<float>(m_Swapchain.GetExtent().width) /
-	//	static_cast<float>(m_Swapchain.GetExtent().height),
-	//	0.1f, 10000.0f  // far plane very large for Sponza
-	//);
-	//proj[1][1] *= -1;
-	//
-	//glm::mat4 viewProj = proj * view;
-
-	// 1. Get the View Matrix from the Scene's Camera
+	//get the viewprojection matrix
 	glm::mat4 view = scene.GetCamera().GetCameraToWorld();
 
-	// 2. Create the Projection Matrix
+	VkDescriptorSet globalSet = scene.GetGlobalTextureSet();
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_Pipeline.GetPipelineLayout(),
+		0, 1, &globalSet, 0, nullptr);
+
 	// Note: We use the camera's FOV (in radians) and the swapchain's aspect ratio
 	glm::mat4 proj = glm::perspective(
 		glm::radians(scene.GetCamera().GetFOV()),
@@ -189,10 +191,8 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene)
 		scene.GetCamera().m_Far
 	);
 
-	// 3. Flip the Y-axis for Vulkan (since glm was designed for OpenGL)
 	proj[1][1] *= -1;
 
-	// 4. Multiply them to get the View-Projection matrix
 	glm::mat4 viewProj = proj * view;
 
 	for (const auto& renderObject : scene.GetRenderObjects())
@@ -201,16 +201,12 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene)
 
 		PushConstants push{};
 		push.transform = viewProj * renderObject.transform;
-		//push.vertexBufferAddress = renderObject.pMesh->GetVertexBufferAddress(m_Device);
-
+		push.vertexBufferAddress = renderObject.pMesh->GetVertexBufferAddress(m_Device);
+		push.textureIndex = renderObject.pMaterial->diffuseTextureIndex;
 
 		vkCmdPushConstants(cmd, m_Pipeline.GetPipelineLayout(),
 			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			0, sizeof(PushConstants), &push);
-
-		VkBuffer vertexBuffers[] = { renderObject.pMesh->GetVertexBuffer().GetBuffer() };
-		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
 
 		vkCmdBindIndexBuffer(cmd,
 			renderObject.pMesh->GetIndexBuffer().GetBuffer(),

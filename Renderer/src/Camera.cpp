@@ -8,11 +8,12 @@
 dae::Camera::Camera()
 {
 	CalculateFOVAspect();
+	CalculateDirections();
+	CalculateCameraToWorld();
 }
 
 void dae::Camera::Update(float deltaTime, const dae::InputHandler& input)
 {
-
 	//speed	(only for wasd)
 	float speed = m_BaseSpeed;
 	if (input.IsKeyDown(GLFW_KEY_LEFT_SHIFT))
@@ -49,7 +50,7 @@ void dae::Camera::Update(float deltaTime, const dae::InputHandler& input)
 	else if (input.IsMouseButtonDown(GLFW_MOUSE_BUTTON_RIGHT))
 	{
 		//Set yaw and pitch according to mouse Y/X
-		SetPitch(m_Pitch += glm::radians(static_cast<float>(-input.GetMouseDelta().y) * m_RotationSensitivity));
+		SetPitch(m_Pitch += glm::radians(static_cast<float>(input.GetMouseDelta().y) * m_RotationSensitivity));
 		SetYaw(m_Yaw += glm::radians(static_cast<float>(input.GetMouseDelta().x) * m_RotationSensitivity));
 	}
 	else if (input.IsMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT))

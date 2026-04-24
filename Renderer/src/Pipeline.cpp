@@ -61,13 +61,13 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 	//vertexInputInfo.vertexBindingDescriptionCount = 0;
 	//vertexInputInfo.vertexAttributeDescriptionCount = 0;
-	auto binding = Vertex::GetBindingDescription();
-	auto attributes = Vertex::GetAttributeDescriptions();
-
-	vertexInputInfo.vertexBindingDescriptionCount = 1;
-	vertexInputInfo.pVertexBindingDescriptions = &binding;
-	vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
-	vertexInputInfo.pVertexAttributeDescriptions = attributes.data();
+	//auto binding = Vertex::GetBindingDescription();
+	//auto attributes = Vertex::GetAttributeDescriptions();
+	//
+	//vertexInputInfo.vertexBindingDescriptionCount = 1;
+	//vertexInputInfo.pVertexBindingDescriptions = &binding;
+	//vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributes.size());
+	//vertexInputInfo.pVertexAttributeDescriptions = attributes.data();
 
 
 	// input assembly
@@ -119,17 +119,51 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	depthStencil.depthBoundsTestEnable = VK_FALSE;
 	depthStencil.stencilTestEnable = VK_FALSE;
 
+	// define flags
+	VkDescriptorBindingFlags bindingFlags =
+		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+		VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+
+	VkDescriptorSetLayoutBindingFlagsCreateInfo flagsInfo{};
+	flagsInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+	flagsInfo.bindingCount = 1;
+	flagsInfo.pBindingFlags = &bindingFlags;
+
+	// setup image "array"
+	VkDescriptorSetLayoutBinding textureBinding{};
+	textureBinding.binding = 0;
+	textureBinding.descriptorCount = 1000; // Max textures in the array
+	textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	// create descriptor set layout
+	VkDescriptorSetLayoutCreateInfo layoutInfo{};
+	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	layoutInfo.pNext = &flagsInfo;
+	layoutInfo.bindingCount = 1;
+	layoutInfo.pBindings = &textureBinding;
+
+	if (vkCreateDescriptorSetLayout(device.GetLogicalDevice(), &layoutInfo, nullptr, &m_DescriptorSetLayout) != VK_SUCCESS) {
+		throw std::runtime_error("failed to create descriptor set layout!");
+	}
+
+	m_DeletionQueue.PushDeleter([this, logicalDevice = device.GetLogicalDevice()]() {
+		vkDestroyDescriptorSetLayout(logicalDevice, m_DescriptorSetLayout, nullptr);
+		m_DescriptorSetLayout = VK_NULL_HANDLE;
+		});
+
 	// pipeline layout
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutInfo.setLayoutCount = 0;
-	pipelineLayoutInfo.pushConstantRangeCount = 0;
+	//pipelineLayoutInfo.pNext = &flagsInfo;
+	pipelineLayoutInfo.setLayoutCount = 1;
+	pipelineLayoutInfo.pSetLayouts = &m_DescriptorSetLayout;
+	pipelineLayoutInfo.pushConstantRangeCount = 1;
 
 	VkPushConstantRange pushRange{};
 	pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	pushRange.offset = 0;
 	pushRange.size = sizeof(PushConstants);
-
 	pipelineLayoutInfo.pushConstantRangeCount = 1;
 	pipelineLayoutInfo.pPushConstantRanges = &pushRange;
 

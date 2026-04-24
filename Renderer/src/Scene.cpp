@@ -16,6 +16,7 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 
 	const Device& device = renderer.GetDevice();
 	VkCommandPool commandPool = renderer.GetCommandPool();
+    VkDescriptorSetLayout textureLayout = renderer.GetPipeline().GetDescriptorSetLayout();
 
 	//create a backup white texture
     m_DefaultTexture = std::make_unique<Texture>();
@@ -49,14 +50,14 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
             pNewTexture->InitFromFile(device, commandPool, fullTexturePath);
 			m_DeletionQueue.PushDeleter(pNewTexture->GetDeletionFlush());
 
-            pNewMaterial->pDiffuseTexture = pNewTexture.get();
+            pNewMaterial->diffuseTextureIndex = static_cast<uint32_t>(m_Textures.size());
             m_Textures.push_back(std::move(pNewTexture));
         }
         else
         {
             // Fallback
 			std::cout << "Material " << i << " has no diffuse texture. Using default white texture." << std::endl;
-            pNewMaterial->pDiffuseTexture = m_DefaultTexture.get();
+            pNewMaterial->diffuseTextureIndex = 0;
         }
 
         m_Materials.push_back(std::move(pNewMaterial));
@@ -81,6 +82,60 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 
     //process all nodes
     ProcessNode(pScene->mRootNode, pScene, glm::mat4x4(1.0f));
+
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = 1000; 
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 1; 
+
+    vkCreateDescriptorPool(device.GetLogicalDevice(), &poolInfo, nullptr, &m_DescriptorPool);
+    m_DeletionQueue.PushDeleter([pool = m_DescriptorPool, logDev = renderer.GetDevice().GetLogicalDevice()]() {
+        vkDestroyDescriptorPool(logDev, pool, nullptr);
+        });
+
+    // 2. Allocate the Variable Count Set
+    uint32_t texturecount[] = { static_cast<uint32_t>(m_Textures.size()) }; 
+
+    VkDescriptorSetVariableDescriptorCountAllocateInfo variableAllocInfo{};
+    variableAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
+    variableAllocInfo.descriptorSetCount = 1;
+    variableAllocInfo.pDescriptorCounts = texturecount;
+
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.pNext = &variableAllocInfo;
+    allocInfo.descriptorPool = m_DescriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &textureLayout; // Your layout from step 4
+
+    vkAllocateDescriptorSets(device.GetLogicalDevice(), &allocInfo, &m_GlobalTextureSet);
+
+    // 3. Write ALL textures into the array
+    std::vector<VkDescriptorImageInfo> imageInfos{};
+    imageInfos.reserve(m_Textures.size());
+    for (const auto& tex : m_Textures) {
+        VkDescriptorImageInfo info{};
+        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        info.imageView = tex->GetImage().GetImageView();
+        info.sampler = tex->GetSampler();
+        imageInfos.push_back(info);
+    }
+
+    VkWriteDescriptorSet descriptorWrite{};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.dstSet = m_GlobalTextureSet;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.dstArrayElement = 0; // Start writing at index 0
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    descriptorWrite.descriptorCount = static_cast<uint32_t>(imageInfos.size());
+    descriptorWrite.pImageInfo = imageInfos.data();
+
+    vkUpdateDescriptorSets(device.GetLogicalDevice(), 1, &descriptorWrite, 0, nullptr);
 
     m_DeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice()]()
         {
@@ -113,6 +168,9 @@ void dae::Scene::ProcessNode(aiNode* aiNodePtr, const aiScene* aiScenePtr, const
 
         RenderObject obj{};
         obj.pMesh = m_Meshes[meshIndex].get();
+        int materialIndex = obj.pMesh->GetPrimitives()[0].materialIndex;
+        // Assign the correct material to the RenderObject
+        obj.pMaterial = m_Materials[materialIndex].get();
         obj.transform = worldTransform;
 
         m_RenderObjects.push_back(obj);

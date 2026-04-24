@@ -51,6 +51,8 @@ namespace dae
 		VkPipelineLayout GetPipelineLayout() const { return m_PipelineLayout; }
 		const PipelineInfo& GetPipelineInfo() const { return m_Info; }
 
+		VkDescriptorSetLayout GetDescriptorSetLayout() const { return m_DescriptorSetLayout; }
+
 	private:
 
 		bool ValidatePipelineInfo(const PipelineInfo& info) const;
@@ -61,6 +63,8 @@ namespace dae
 		VkPipeline m_Pipeline{ VK_NULL_HANDLE };
 		VkPipelineLayout m_PipelineLayout{ VK_NULL_HANDLE };
 		PipelineInfo m_Info{};
+
+		VkDescriptorSetLayout m_DescriptorSetLayout{ VK_NULL_HANDLE };
 
 		DeletionQueue m_DeletionQueue{};
 	};

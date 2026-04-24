@@ -27,6 +27,9 @@ int main()
 	scene.Init("resources/gltf/Sponza/Sponza.gltf", renderer);
 	mainDeletionQueue.PushDeleter(scene.GetDeletionFlush());
 
+	auto& camera = scene.GetCamera();
+	camera.SetFOV(60.f);
+
 	auto lastTime = std::chrono::high_resolution_clock::now();
 
 	// Main loop

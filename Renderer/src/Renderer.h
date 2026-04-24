@@ -52,6 +52,7 @@ namespace dae
 		std::vector<std::unique_ptr<Frame>> m_Frames{};
 		int m_CurrentFrame{ 0 };
 		uint32_t m_MaxFramesInFlight{ 3 };
+		dae::Image m_DepthImage{};
 
 		DeletionQueue m_DeletionQueue{};
 	};
