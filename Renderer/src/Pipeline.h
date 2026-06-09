@@ -9,22 +9,23 @@ namespace dae
 {
 	class Device;
 
+	enum class DescriptorLayoutType
+	{
+		BindlessTextures,	// larget texture array
+		GBuffer				// fixed GBuffer
+	};
+
 	struct PipelineInfo
 	{
 		std::filesystem::path vertexShaderFilePath{};
 		std::filesystem::path fragmentShaderFilePath{};
-		VkFormat colorAttachmentFormat{ VK_FORMAT_UNDEFINED };
+		std::vector<VkFormat> colorAttachmentFormats{};
 		VkFormat depthAttachmentFormat{ VK_FORMAT_UNDEFINED };
 		VkPrimitiveTopology topology{ VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
 		VkPolygonMode polygonMode{ VK_POLYGON_MODE_FILL };
 		VkCullModeFlags cullMode{ VK_CULL_MODE_BACK_BIT };
 		VkFrontFace frontFace{ VK_FRONT_FACE_COUNTER_CLOCKWISE };
-		bool useVertexPulling{ false };
-
-		bool HasMinimalRequiredInfo() const
-		{
-			return !vertexShaderFilePath.empty();;
-		}
+		DescriptorLayoutType descriptorLayout{ DescriptorLayoutType::BindlessTextures };
 	};
 
 	class Pipeline final
@@ -45,11 +46,10 @@ namespace dae
 
 		void Bind(VkCommandBuffer cmd) const;
 
-		VkPipeline GetPipeline() const { return m_Pipeline; }
-		VkPipelineLayout GetPipelineLayout() const { return m_PipelineLayout; }
+		const VkPipeline& GetPipeline() const { return m_Pipeline; }
+		const VkPipelineLayout& GetPipelineLayout() const { return m_PipelineLayout; }
 		const PipelineInfo& GetPipelineInfo() const { return m_Info; }
-
-		VkDescriptorSetLayout GetDescriptorSetLayout() const { return m_DescriptorSetLayout; }
+		const VkDescriptorSetLayout& GetDescriptorSetLayout() const { return m_DescriptorSetLayout; }
 
 	private:
 

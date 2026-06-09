@@ -25,7 +25,7 @@ namespace dae
 
         const std::vector<RenderObject>& GetRenderObjects() const { return m_RenderObjects; }
 		const Camera& GetCamera() const { return m_Camera; }
-        VkDescriptorSet GetGlobalTextureSet() const { return m_GlobalTextureSet; }
+        VkDescriptorSet GetDescriptorSet() const { return m_DescriptorSet; }
         Camera& GetCamera() { return m_Camera; }
 
 		std::function<void()> GetDeletionFlush();
@@ -43,7 +43,7 @@ namespace dae
         std::unique_ptr<Texture> m_DefaultTexture; // in case of a missing texture
 
         VkDescriptorPool m_DescriptorPool{ VK_NULL_HANDLE };
-        VkDescriptorSet m_GlobalTextureSet{ VK_NULL_HANDLE };
+        VkDescriptorSet m_DescriptorSet{ VK_NULL_HANDLE };
 
 		Camera m_Camera{};
 

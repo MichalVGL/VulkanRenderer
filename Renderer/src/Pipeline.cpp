@@ -5,6 +5,8 @@
 #include "Device.h"
 #include "GraphicsTypes.h"
 
+//todo, create a shader class to bind externally
+
 void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 {
 	//verify input
@@ -22,8 +24,6 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 
 	m_DeletionQueue.Flush(); // in case of reinitialization
 	m_Info = info;
-
-	//todo, allow fragment shader to be optional and create a depth prepass in renderer
 
 	// load and create shader modules
 	std::vector<uint32_t> vertCode = ReadShaderFile(info.vertexShaderFilePath);
@@ -61,7 +61,7 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	// vertex input, empty for vertex pulling
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-
+	
 	// input assembly
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -121,19 +121,43 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	flagsInfo.bindingCount = 1;
 	flagsInfo.pBindingFlags = &bindingFlags;
 
-	// setup image "array"
-	VkDescriptorSetLayoutBinding textureBinding{};
-	textureBinding.binding = 0;
-	textureBinding.descriptorCount = 1000; // Max textures in the array
-	textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-	// create descriptor set layout
+	std::vector<VkDescriptorSetLayoutBinding> bindings{};
 	VkDescriptorSetLayoutCreateInfo layoutInfo{};
+
+	if (info.descriptorLayout == DescriptorLayoutType::BindlessTextures)
+	{
+		VkDescriptorSetLayoutBinding& binding = bindings.emplace_back();
+		binding.binding = 0;
+		binding.descriptorCount = 1000; // Max textures in the array
+		binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+		layoutInfo.pNext = &flagsInfo; // Enable variable descriptor count for bindless textures
+	} 
+	else if (info.descriptorLayout == DescriptorLayoutType::GBuffer)
+	{
+		bindings.reserve(3);
+
+		for (int i = 0; i < 3; i++)
+		{
+			VkDescriptorSetLayoutBinding& binding = bindings.emplace_back();
+			binding.binding = i;
+			binding.descriptorCount = 1;
+			binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		}
+
+		layoutInfo.pNext = nullptr; // No variable descriptor count needed for fixed GBuffer
+	}
+	else
+	{
+		throw std::runtime_error("[Pipeline.cpp] unknown descriptor layout type!");
+	}
+
+	// fill in descriptor set layout
 	layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	layoutInfo.pNext = &flagsInfo;
-	layoutInfo.bindingCount = 1;
-	layoutInfo.pBindings = &textureBinding;
+	layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+	layoutInfo.pBindings = bindings.data();
 
 	if (vkCreateDescriptorSetLayout(device.GetLogicalDevice(), &layoutInfo, nullptr, &m_DescriptorSetLayout) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create descriptor set layout!");
@@ -147,7 +171,6 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	// pipeline layout
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	//pipelineLayoutInfo.pNext = &flagsInfo;
 	pipelineLayoutInfo.setLayoutCount = 1;
 	pipelineLayoutInfo.pSetLayouts = &m_DescriptorSetLayout;
 	pipelineLayoutInfo.pushConstantRangeCount = 1;
@@ -173,8 +196,8 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	// dynamic rendering info
 	VkPipelineRenderingCreateInfo renderingInfo{};
 	renderingInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-	renderingInfo.colorAttachmentCount = 1;
-	renderingInfo.pColorAttachmentFormats = &info.colorAttachmentFormat;
+	renderingInfo.colorAttachmentCount = static_cast<uint32_t>(info.colorAttachmentFormats.size());
+	renderingInfo.pColorAttachmentFormats = info.colorAttachmentFormats.data();
 	renderingInfo.depthAttachmentFormat = info.depthAttachmentFormat;
 
 	// pipeline creation
@@ -233,11 +256,6 @@ bool dae::Pipeline::IsInitialized() const
 
 bool dae::Pipeline::ValidatePipelineInfo(const PipelineInfo& info) const
 {
-	if (!info.HasMinimalRequiredInfo())
-	{
-		return false;
-	}
-
 	// check vertex shader
 	if (!std::filesystem::exists(info.vertexShaderFilePath))
 	{

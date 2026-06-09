@@ -19,6 +19,7 @@ void dae::ImageRef::Init(const Device& device, VkImage image, VkFormat format, V
 
 	m_Image = image;
 	m_CurrentLayout = initialLayout;
+	m_Format = format;
 	m_AspectFlags = aspectFlags;
 	m_MipLevels = mipLevels;
 

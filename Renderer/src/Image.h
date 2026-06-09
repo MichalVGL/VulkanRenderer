@@ -34,6 +34,7 @@ namespace dae
 
 		VkImage GetImage() const { return m_Image; }
 		VkImageView GetImageView() const { return m_ImageView; }
+		VkFormat GetFormat() const { return m_Format; }
 		VkImageLayout GetCurrentLayout() const { return m_CurrentLayout; }
 		uint32_t GetMipLevels() const { return m_MipLevels; }
 		VkImageAspectFlags GetAspectFlags() const { return m_AspectFlags; }
@@ -46,6 +47,7 @@ namespace dae
 
 		VkImage m_Image{ VK_NULL_HANDLE };
 		VkImageView m_ImageView{ VK_NULL_HANDLE };
+		VkFormat m_Format{};
 		VkImageLayout m_CurrentLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
 		uint32_t m_MipLevels{ 1 };
 
@@ -82,6 +84,7 @@ namespace dae
 
 		VkImage GetImage() const { return m_ImageRef.GetImage(); }
 		VkImageView GetImageView() const { return m_ImageRef.GetImageView(); }
+		VkFormat GetFormat() const { return m_ImageRef.GetFormat(); }
 		VkImageLayout GetCurrentLayout() const { return m_ImageRef.GetCurrentLayout(); }
 		uint32_t GetMipLevels() const { return m_ImageRef.GetMipLevels(); }
 		VkImageAspectFlags GetAspectFlags() const { return m_ImageRef.GetAspectFlags(); }

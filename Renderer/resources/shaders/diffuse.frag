@@ -16,7 +16,12 @@ layout(location = 0) out vec4 outColor;
 void main()
 {
     // nonuniformEXT is required when indexing an array with a value that can change per-triangle/pixel
-    vec4 texColor = texture(globalTextures[nonuniformEXT(pushConstants.textureIndex)], fragUV);
-    
-    outColor = vec4(texColor.rgb, 1.0);
+    //vec4 texColor = texture(globalTextures[nonuniformEXT(pushConstants.textureIndex)], fragUV);
+
+    //outColor = vec4(texColor.rgb, 1.0);
+
+    vec3 normal = normalize(fragNormal);
+
+    // Visualize normal as RGB
+    outColor = vec4(normal * 0.5 + 0.5, 1.0);
 }

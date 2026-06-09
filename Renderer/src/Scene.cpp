@@ -16,17 +16,19 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 
 	const Device& device = renderer.GetDevice();
 	VkCommandPool commandPool = renderer.GetCommandPool();
-    VkDescriptorSetLayout textureLayout = renderer.GetPipeline().GetDescriptorSetLayout();
+    VkDescriptorSetLayout textureLayout = renderer.GetGBufferPipeline().GetDescriptorSetLayout();
 
 	//create a backup white texture
-    m_DefaultTexture = std::make_unique<Texture>();
-    unsigned char whitePixel[4] = { 255, 255, 255, 255 }; // RGBA White
+	m_Textures.push_back(std::make_unique<Texture>()); // index 0 will be the default white texture
+	Texture* pDefaultTexture = m_Textures.back().get();
+   // m_DefaultTexture = std::make_unique<Texture>();
+    unsigned char whitePixel[4] = { 255, 255, 255, 255 };
 
-    m_DefaultTexture->Init(device, 1, 1, VK_FORMAT_R8G8B8A8_SRGB,
+    pDefaultTexture->Init(device, 1, 1, VK_FORMAT_R8G8B8A8_SRGB,
         VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1);
 
-    m_DefaultTexture->LoadPixels(device, commandPool, whitePixel, 1, 1);
-	m_DeletionQueue.PushDeleter(m_DefaultTexture->GetDeletionFlush());
+    pDefaultTexture->LoadPixels(device, commandPool, whitePixel, 1, 1);
+	m_DeletionQueue.PushDeleter(pDefaultTexture->GetDeletionFlush());
 
     //process materials and textures
     m_Materials.reserve(pScene->mNumMaterials);
@@ -35,8 +37,9 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
         aiMaterial* pAiMaterial = pScene->mMaterials[i];
         auto pNewMaterial = std::make_unique<Material>();
 
-        // Check if this material has a diffuse (base color) texture
         aiString texturePath;
+
+        // Check if this material has a diffuse (base color) texture
         if (pAiMaterial->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS)
         {
             // Construct the full path (textures are usually relative to the 3D model file)
@@ -46,7 +49,6 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
             // Create and load the texture
             auto pNewTexture = std::make_unique<Texture>();
 
-            // Assuming you added the LoadFromFile method we discussed earlier:
             pNewTexture->InitFromFile(device, commandPool, fullTexturePath);
 			m_DeletionQueue.PushDeleter(pNewTexture->GetDeletionFlush());
 
@@ -114,16 +116,16 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
     allocInfo.pNext = &variableAllocInfo;
     allocInfo.descriptorPool = m_DescriptorPool;
     allocInfo.descriptorSetCount = 1;
-    allocInfo.pSetLayouts = &textureLayout; // Your layout from step 4
+    allocInfo.pSetLayouts = &textureLayout;
 
-    vkAllocateDescriptorSets(device.GetLogicalDevice(), &allocInfo, &m_GlobalTextureSet);
+    vkAllocateDescriptorSets(device.GetLogicalDevice(), &allocInfo, &m_DescriptorSet);
 
-    // 3. Write ALL textures into the array
+    // 3. Write all textures into the array
     std::vector<VkDescriptorImageInfo> imageInfos{};
     imageInfos.reserve(m_Textures.size());
     for (const auto& tex : m_Textures) {
         VkDescriptorImageInfo info{};
-        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         info.imageView = tex->GetImage().GetImageView();
         info.sampler = tex->GetSampler();
         imageInfos.push_back(info);
@@ -131,7 +133,7 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 
     VkWriteDescriptorSet descriptorWrite{};
     descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrite.dstSet = m_GlobalTextureSet;
+    descriptorWrite.dstSet = m_DescriptorSet;
     descriptorWrite.dstBinding = 0;
     descriptorWrite.dstArrayElement = 0; // Start writing at index 0
     descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -139,6 +141,8 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
     descriptorWrite.pImageInfo = imageInfos.data();
 
     vkUpdateDescriptorSets(device.GetLogicalDevice(), 1, &descriptorWrite, 0, nullptr);
+
+	// Add a deleter to wait for the GPU to finish before destroying the scene resources
 
     m_DeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice()]()
         {

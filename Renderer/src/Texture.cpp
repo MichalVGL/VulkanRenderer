@@ -37,7 +37,7 @@ void dae::Texture::Init(const Device& device, uint32_t width, uint32_t height, V
 
 	if (vkCreateSampler(device.GetLogicalDevice(), &samplerInfo, nullptr, &m_Sampler) != VK_SUCCESS)
 	{
-		throw std::runtime_error("failed to create texture sampler!");
+		throw std::runtime_error("[Texture] failed to create texture sampler!");
 	}
 	else
 	{
