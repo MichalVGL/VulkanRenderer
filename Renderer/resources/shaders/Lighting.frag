@@ -9,6 +9,30 @@ layout(set = 0, binding = 2) uniform sampler2D gMaterial;
 
 layout(location = 0) out vec4 outColor;
 
+//==================
+// Normal Decoding
+//==================
+
+vec2 OctWrap(vec2 v)
+{
+    return (1.0 - abs(v.yx)) * sign(v);
+}
+
+vec3 DecodeNormal(vec2 e)
+{
+    e = e * 2.0 - 1.0;
+
+    vec3 n;
+    n.z = 1.0 - abs(e.x) - abs(e.y);
+    n.xy = n.z >= 0.0 ? e.xy : OctWrap(e.xy);
+
+    return normalize(n);
+}
+
+//==================
+// Main
+//==================
+
 void main()
 {
     //albedo

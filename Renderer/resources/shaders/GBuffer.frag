@@ -20,17 +20,37 @@ layout(location = 0) out vec4 outAlbedo;
 layout(location = 1) out vec2 outNormal;    // encoded normal
 layout(location = 2) out vec4 outMaterial;  // unused for now
 
+vec2 OctWrap(vec2 v)
+{
+    return (1.0 - abs(v.yx)) * sign(v);
+}
+
+// Octahedral normal encoding
+// based on: https://knarkowicz.wordpress.com/2014/04/16/octahedron-normal-vector-encoding/
+vec2 EncodeNormal(vec3 n) // octahedral encode
+{
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    if(n.z < 0.0)
+        n.xy = OctWrap(n.xy);
+    n.xy = n.xy * 0.5 + 0.5;
+    return n.xy;
+}
+
+layout(early_fragment_tests) in;
+
 void main()
 {
+
+    vec4 albedo = texture(globalTextures[nonuniformEXT(fragAlbedoIndex)], fragUV);
+
+    if (albedo.a < 0.5)
+        discard;
+
     // albedo from texture
     outAlbedo = texture(globalTextures[nonuniformEXT(fragAlbedoIndex)], fragUV);
 
-    // octahedral encode normal
     vec3 n = normalize(texture(globalTextures[nonuniformEXT(fragNormalIndex)], fragUV).xyz);
-    vec2 encoded = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
-    if (n.z < 0.0)
-        encoded = (1.0 - abs(encoded.yx)) * sign(encoded);
-    outNormal = encoded * 0.5 + 0.5; // remap to [0,1]
+    outNormal = EncodeNormal(n); // octahedral encode
 
     outMaterial = texture(globalTextures[nonuniformEXT(fragMaterialIndex)], fragUV);
 }

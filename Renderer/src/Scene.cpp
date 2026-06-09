@@ -27,21 +27,6 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
         aiMaterial* pAiMaterial = pScene->mMaterials[i];
         auto pNewMaterial = std::make_unique<Material>();
 
-        for (int type = aiTextureType_NONE;
-            type <= aiTextureType_TRANSMISSION;
-            ++type)
-        {
-            unsigned int count =
-                pAiMaterial->GetTextureCount((aiTextureType)type);
-
-            if (count > 0)
-            {
-                std::cout << "Type " << type
-                    << " Count " << count
-                    << std::endl;
-            }
-        }
-
         aiString texturePath;
 
         //=================================
