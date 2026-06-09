@@ -29,7 +29,6 @@ namespace dae
 
 		const Device& GetDevice() const { return m_Device; }
 		const Swapchain& GetSwapchain() const { return m_Swapchain; }
-		//const Pipeline& GetPipeline() const { return m_Pipeline; }
 		const Pipeline& GetGBufferPipeline() const { return m_GBufferPipeline; }
 		const Pipeline& GetLightingPipeline() const { return m_LightingPipeline; }
 		VkCommandPool GetCommandPool() const { return m_CommandPool; }
@@ -44,7 +43,7 @@ namespace dae
 		void DeleteResources();
 
 		VkRenderingAttachmentInfo MakeColorAttachment(VkImageView view);
-		VkRenderingAttachmentInfo MakeDepthAttachment(VkImageView view);
+		VkRenderingAttachmentInfo MakeDepthAttachment(VkImageView view, bool clearImageOnLoad, bool storeImage);
 		void SetViewportScissor(VkCommandBuffer cmd);
 
 		bool m_IsInitialized{ false };
@@ -53,6 +52,7 @@ namespace dae
 		Device m_Device{};
 		Swapchain m_Swapchain{};
 		
+		Pipeline m_DepthPrePassPipeline{};
 		Pipeline m_GBufferPipeline{};
 		Pipeline m_LightingPipeline{};
 

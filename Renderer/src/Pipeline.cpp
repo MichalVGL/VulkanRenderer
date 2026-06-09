@@ -5,8 +5,6 @@
 #include "Device.h"
 #include "GraphicsTypes.h"
 
-//todo, create a shader class to bind externally
-
 void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 {
 	//verify input
@@ -111,9 +109,9 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	// depth stencil
 	VkPipelineDepthStencilStateCreateInfo depthStencil{};
 	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	depthStencil.depthTestEnable = info.depthAttachmentFormat != VK_FORMAT_UNDEFINED ? VK_TRUE : VK_FALSE;
-	depthStencil.depthWriteEnable = info.depthAttachmentFormat != VK_FORMAT_UNDEFINED ? VK_TRUE : VK_FALSE;
-	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+	depthStencil.depthTestEnable = info.depthTestEnable;
+	depthStencil.depthWriteEnable = info.depthWriteEnable;
+	depthStencil.depthCompareOp = info.depthCompareOp;
 	depthStencil.depthBoundsTestEnable = VK_FALSE;
 	depthStencil.stencilTestEnable = VK_FALSE;
 

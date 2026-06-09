@@ -20,6 +20,9 @@ namespace dae
 		std::filesystem::path vertexShaderFilePath{};
 		std::filesystem::path fragmentShaderFilePath{};
 		std::vector<VkFormat> colorAttachmentFormats{};
+		VkBool32 depthTestEnable{ VK_FALSE };
+		VkBool32 depthWriteEnable{ VK_FALSE };
+		VkCompareOp depthCompareOp{ VK_COMPARE_OP_LESS };
 		VkFormat depthAttachmentFormat{ VK_FORMAT_UNDEFINED };
 		VkPrimitiveTopology topology{ VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST };
 		VkPolygonMode polygonMode{ VK_POLYGON_MODE_FILL };

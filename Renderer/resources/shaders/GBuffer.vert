@@ -15,7 +15,7 @@ layout(buffer_reference, scalar) readonly buffer VertexBuffer {
 };
 
 layout(push_constant) uniform PushConstants {
-    mat4 transform;
+    mat4 transform; //todo, chang ename to mvp and push model seperatly
     uint64_t vertexBufferAddress;
     uint32_t albedoTextureIndex;
     uint32_t normalTextureIndex;
@@ -24,18 +24,9 @@ layout(push_constant) uniform PushConstants {
 
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec2 fragUV;
-layout(location = 2) out flat uint fragAlbedoIndex;
-layout(location = 3) out flat uint fragNormalIndex;
-layout(location = 4) out flat uint fragMaterialIndex;
-
-//layout(early_fragment_tests) in;
 
 void main()
 {
-    //const float alphaThreshold = 0.95f;
-    //if(texture(globalTextures[nonuniformEXT(push.albedoTextureIndex)], fragUV).a < alphaThreshold)
-        //discard; // alpha test for masking, can be used for foliage, fences, etc.
-
     // Retrieve the buffer using the address
     VertexBuffer vb = VertexBuffer(push.vertexBufferAddress);
     
@@ -44,9 +35,6 @@ void main()
     gl_Position = push.transform * vec4(v.position, 1.0);
     
     // Pass properties to fragment shader
-    fragNormal = mat3(push.transform) * v.normal; 
+    fragNormal = mat3(push.transform) * v.normal; //todo, push model seperatly
     fragUV = v.uv;
-    fragAlbedoIndex = push.albedoTextureIndex;
-    fragNormalIndex = push.normalTextureIndex;
-    fragMaterialIndex = push.materialTextureIndex;  
 }

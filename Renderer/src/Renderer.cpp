@@ -68,7 +68,22 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	//==============================
 	// Deferred Pipelines 
-
+	
+	// Depth PrePass Pipeline
+	PipelineInfo depthPrePassPipelineInfo{};
+	depthPrePassPipelineInfo.vertexShaderFilePath = "resources/shaders/DepthPrePass.vert.spv";
+	depthPrePassPipelineInfo.fragmentShaderFilePath = "resources/shaders/DepthPrePass.frag.spv";
+	depthPrePassPipelineInfo.colorAttachmentFormats = {};
+	depthPrePassPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	depthPrePassPipelineInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	depthPrePassPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
+	depthPrePassPipelineInfo.depthTestEnable = VK_TRUE;
+	depthPrePassPipelineInfo.depthWriteEnable = VK_TRUE;
+	depthPrePassPipelineInfo.descriptorLayout = DescriptorLayoutType::BindlessTextures; //still needed to check alpha
+	
+	m_DepthPrePassPipeline.Init(m_Device, depthPrePassPipelineInfo);
+	m_DeletionQueue.PushDeleter(m_DepthPrePassPipeline.GetDeletionFlush());
+	
 	// GBuffer Pipeline
 	PipelineInfo gBufferPipelineInfo{};
 	gBufferPipelineInfo.vertexShaderFilePath = "resources/shaders/GBuffer.vert.spv";
@@ -77,6 +92,9 @@ void dae::Renderer::Init(const Window* pWindow)
 	gBufferPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	gBufferPipelineInfo.cullMode = VK_CULL_MODE_BACK_BIT;
 	gBufferPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
+	gBufferPipelineInfo.depthTestEnable = VK_TRUE;
+	gBufferPipelineInfo.depthWriteEnable = VK_FALSE;
+	gBufferPipelineInfo.depthCompareOp = VK_COMPARE_OP_EQUAL;
 	gBufferPipelineInfo.descriptorLayout = DescriptorLayoutType::BindlessTextures;
 
 	m_GBufferPipeline.Init(m_Device, gBufferPipelineInfo);
@@ -90,6 +108,8 @@ void dae::Renderer::Init(const Window* pWindow)
 	lightingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	lightingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
 	lightingPipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+	lightingPipelineInfo.depthTestEnable = VK_FALSE;
+	lightingPipelineInfo.depthWriteEnable = VK_FALSE;
 	lightingPipelineInfo.descriptorLayout = DescriptorLayoutType::GBuffer;
 
 	m_LightingPipeline.Init(m_Device, lightingPipelineInfo);
@@ -145,6 +165,35 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	ImageRef& image = m_Swapchain.GetImage(imageIndex);
 
 	//==============================
+	// Depth PrePass
+
+	// Depth (read and write)
+	m_DepthImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
+
+	// depth attachment
+	VkRenderingAttachmentInfo depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView(), true, true);
+	
+	VkRenderingInfo depthPrePassRenderingInfo{};
+	depthPrePassRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	depthPrePassRenderingInfo.renderArea = { {0, 0}, m_Swapchain.GetExtent() };
+	depthPrePassRenderingInfo.layerCount = 1;
+	depthPrePassRenderingInfo.colorAttachmentCount = 0;
+	depthPrePassRenderingInfo.pColorAttachments = nullptr;
+	depthPrePassRenderingInfo.pDepthAttachment = &depthAttachment;
+
+	vkCmdBeginRendering(commandBuffer, &depthPrePassRenderingInfo);
+
+	// set dynamic viewport and scissor
+	SetViewportScissor(commandBuffer);
+
+	m_DepthPrePassPipeline.Bind(commandBuffer);
+
+	DrawScene(commandBuffer, scene);
+	vkCmdEndRendering(commandBuffer);
+
+	//==============================
 	// Geometry Pass
 
 	//GBuffer
@@ -158,10 +207,10 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
-	// Depth
+	// Depth (read only)
 	m_DepthImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
+		VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT);
 
 	// setup GBuffer attachments
 	std::array<VkRenderingAttachmentInfo, 3> gBufferAttachments{};
@@ -169,8 +218,8 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	gBufferAttachments[1] = MakeColorAttachment(m_NormalImage.GetImageView());
 	gBufferAttachments[2] = MakeColorAttachment(m_MaterialImage.GetImageView());
 
-	// depth attachment
-	VkRenderingAttachmentInfo depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView());
+	// depth attachment already made above in depth prepass
+	depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView(), false, false); //don't clear or store, already done in depth prepass
 
 	VkRenderingInfo geometryRenderingInfo{};
 	geometryRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -184,6 +233,8 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 
 	// set dynamic viewport and scissor
 	SetViewportScissor(commandBuffer);
+
+	m_GBufferPipeline.Bind(commandBuffer);
 
 	//draw scene to gbuffer (GBuffer pipeline is bound inside this function)
 	DrawScene(commandBuffer, scene);
@@ -251,8 +302,6 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene)
 {
 	//get the viewprojection matrix
 	glm::mat4 view = scene.GetCamera().GetCameraToWorld();
-
-	m_GBufferPipeline.Bind(cmd);
 
 	VkDescriptorSet globalSet = scene.GetDescriptorSet();
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS
@@ -455,14 +504,14 @@ VkRenderingAttachmentInfo dae::Renderer::MakeColorAttachment(VkImageView view)
 	return attachment;
 }
 
-VkRenderingAttachmentInfo dae::Renderer::MakeDepthAttachment(VkImageView view)
+VkRenderingAttachmentInfo dae::Renderer::MakeDepthAttachment(VkImageView view, bool clearImageOnLoad, bool storeImage)
 {
 	VkRenderingAttachmentInfo attachment{};
 	attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	attachment.imageView = view;
 	attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-	attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-	attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachment.loadOp = clearImageOnLoad ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+	attachment.storeOp = storeImage ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	attachment.clearValue.depthStencil.depth = 1.0f;
 	return attachment;
 }
