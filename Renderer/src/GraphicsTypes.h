@@ -18,7 +18,9 @@ namespace dae
 
 	struct Material
 	{
-		uint32_t diffuseTextureIndex{};
+		uint32_t albedoTextureIndex{};
+		uint32_t normalTextureIndex{};
+		uint32_t metalicRoughnessTextureIndex{};
 	};
 
 	struct RenderObject

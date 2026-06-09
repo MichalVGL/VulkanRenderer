@@ -11,6 +11,19 @@ layout(location = 0) out vec4 outColor;
 
 void main()
 {
+    //albedo
     vec4 albedo = texture(gAlbedo, fragUV);
-    outColor = albedo; // just output albedo for now, add lighting later
+    outColor = vec4(albedo.rgb, 1.0);
+
+    //normal
+    //vec4 normal = texture(gNormal, fragUV);
+    //outColor = vec4(normal.rg, 0.0, 1.0);
+
+    //metalness
+    //vec4 albedo = texture(gMaterial, fragUV);
+    //outColor = vec4(albedo.b, albedo.b, albedo.b, 1.0);
+
+    //roughness
+    //vec4 albedo = texture(gMaterial, fragUV);
+    //outColor = vec4(albedo.g, albedo.g, albedo.g, 1.0);
 }

@@ -88,7 +88,7 @@ void dae::Renderer::Init(const Window* pWindow)
 	lightingPipelineInfo.fragmentShaderFilePath = "resources/shaders/Lighting.frag.spv";
 	lightingPipelineInfo.colorAttachmentFormats = { m_Swapchain.GetImageFormat() };
 	lightingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	lightingPipelineInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	lightingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
 	lightingPipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
 	lightingPipelineInfo.descriptorLayout = DescriptorLayoutType::GBuffer;
 
@@ -281,7 +281,9 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene)
 		PushConstants push{};
 		push.transform = viewProj * renderObject.transform;
 		push.vertexBufferAddress = renderObject.pMesh->GetVertexBufferAddress(m_Device);
-		push.textureIndex = renderObject.pMaterial->diffuseTextureIndex;
+		push.albedoTextureIndex = renderObject.pMaterial->albedoTextureIndex;
+		push.normalTextureIndex = renderObject.pMaterial->normalTextureIndex;
+		push.metalicRoughnessTextureIndex = renderObject.pMaterial->metalicRoughnessTextureIndex;
 
 		vkCmdPushConstants(cmd, m_GBufferPipeline.GetPipelineLayout(),
 			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,

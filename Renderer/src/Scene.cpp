@@ -18,17 +18,7 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 	VkCommandPool commandPool = renderer.GetCommandPool();
     VkDescriptorSetLayout textureLayout = renderer.GetGBufferPipeline().GetDescriptorSetLayout();
 
-	//create a backup white texture
-	m_Textures.push_back(std::make_unique<Texture>()); // index 0 will be the default white texture
-	Texture* pDefaultTexture = m_Textures.back().get();
-   // m_DefaultTexture = std::make_unique<Texture>();
-    unsigned char whitePixel[4] = { 255, 255, 255, 255 };
-
-    pDefaultTexture->Init(device, 1, 1, VK_FORMAT_R8G8B8A8_SRGB,
-        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1);
-
-    pDefaultTexture->LoadPixels(device, commandPool, whitePixel, 1, 1);
-	m_DeletionQueue.PushDeleter(pDefaultTexture->GetDeletionFlush());
+	CreateDefaultTextures(device, commandPool);
 
     //process materials and textures
     m_Materials.reserve(pScene->mNumMaterials);
@@ -37,10 +27,26 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
         aiMaterial* pAiMaterial = pScene->mMaterials[i];
         auto pNewMaterial = std::make_unique<Material>();
 
+        for (int type = aiTextureType_NONE;
+            type <= aiTextureType_TRANSMISSION;
+            ++type)
+        {
+            unsigned int count =
+                pAiMaterial->GetTextureCount((aiTextureType)type);
+
+            if (count > 0)
+            {
+                std::cout << "Type " << type
+                    << " Count " << count
+                    << std::endl;
+            }
+        }
+
         aiString texturePath;
 
-        // Check if this material has a diffuse (base color) texture
-        if (pAiMaterial->GetTexture(aiTextureType_DIFFUSE, 0, &texturePath) == AI_SUCCESS)
+        //=================================
+		// Diffuse texture
+        if (pAiMaterial->GetTexture(aiTextureType_BASE_COLOR, 0, &texturePath) == AI_SUCCESS)
         {
             // Construct the full path (textures are usually relative to the 3D model file)
             std::filesystem::path modelDirectory = filepath.parent_path();
@@ -52,17 +58,65 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
             pNewTexture->InitFromFile(device, commandPool, fullTexturePath);
 			m_DeletionQueue.PushDeleter(pNewTexture->GetDeletionFlush());
 
-            pNewMaterial->diffuseTextureIndex = static_cast<uint32_t>(m_Textures.size());
+            pNewMaterial->albedoTextureIndex = static_cast<uint32_t>(m_Textures.size());
             m_Textures.push_back(std::move(pNewTexture));
         }
-        else
+        else // Fallback
         {
 #ifdef DEBUG
             std::cout << "Material " << i << " has no diffuse texture. Using default white texture." << std::endl;
 #endif // DEBUG
+            pNewMaterial->albedoTextureIndex = DEFAULT_DIFFUSE_TEXTURE_INDEX;
+        }
 
-            // Fallback
-            pNewMaterial->diffuseTextureIndex = 0;
+        //=================================
+        // Normal texture
+        if (pAiMaterial->GetTexture(aiTextureType_NORMALS, 0, &texturePath) == AI_SUCCESS)
+        {
+            // Construct the full path (textures are usually relative to the 3D model file)
+            std::filesystem::path modelDirectory = filepath.parent_path();
+            std::filesystem::path fullTexturePath = modelDirectory / texturePath.C_Str();
+
+            // Create and load the texture
+            auto pNewTexture = std::make_unique<Texture>();
+
+            pNewTexture->InitFromFile(device, commandPool, fullTexturePath, VK_FORMAT_R8G8B8A8_UNORM);
+            m_DeletionQueue.PushDeleter(pNewTexture->GetDeletionFlush());
+
+            pNewMaterial->normalTextureIndex = static_cast<uint32_t>(m_Textures.size());
+            m_Textures.push_back(std::move(pNewTexture));
+        }
+        else // Fallback
+        {
+#ifdef DEBUG
+            std::cout << "Material " << i << " has no normal texture. Using default texture." << std::endl;
+#endif // DEBUG
+            pNewMaterial->normalTextureIndex = DEFAULT_NORMAL_TEXTURE_INDEX;
+        }
+
+        //=================================
+        // Metalness-Roughness texture
+        if (pAiMaterial->GetTexture(aiTextureType_METALNESS, 0, &texturePath) == AI_SUCCESS)
+        {
+            // Construct the full path (textures are usually relative to the 3D model file)
+            std::filesystem::path modelDirectory = filepath.parent_path();
+            std::filesystem::path fullTexturePath = modelDirectory / texturePath.C_Str();
+
+            // Create and load the texture
+            auto pNewTexture = std::make_unique<Texture>();
+
+            pNewTexture->InitFromFile(device, commandPool, fullTexturePath, VK_FORMAT_R8G8B8A8_UNORM);
+            m_DeletionQueue.PushDeleter(pNewTexture->GetDeletionFlush());
+
+            pNewMaterial->metalicRoughnessTextureIndex = static_cast<uint32_t>(m_Textures.size());
+            m_Textures.push_back(std::move(pNewTexture));
+        }
+        else // Fallback
+        {
+#ifdef DEBUG
+            std::cout << "Material " << i << " has no metalness-roughness texture. Using default texture." << std::endl;
+#endif // DEBUG
+            pNewMaterial->metalicRoughnessTextureIndex = DEFAULT_METALIC_ROUGHNESS_TEXTURE_INDEX;
         }
 
         m_Materials.push_back(std::move(pNewMaterial));
@@ -236,4 +290,53 @@ dae::Mesh* dae::Scene::ProcessMesh(aiMesh* aiMeshPtr, const Device& device, VkCo
     pNewMesh->Init(device, commandPool, vertices, indices);
 
     return pNewMesh;
+}
+
+void dae::Scene::CreateDefaultTextures(const Device& device, VkCommandPool commandPool)
+{
+    unsigned char whitePixel[4] =
+    {
+        255, 255, 255, 255
+    };
+
+    // Flat normal
+    unsigned char normalPixel[4] =
+    {
+        128, 128, 255, 255
+    };
+
+    // Rough dielectric
+    unsigned char metallicRoughnessPixel[4] =
+    {
+        0, 255, 0, 255
+    };
+
+    //create a backup white texture
+    m_Textures.push_back(std::make_unique<Texture>()); // index 0 will be the default white texture
+    Texture* pDefaultTexture = m_Textures.back().get();
+
+    pDefaultTexture->Init(device, 1, 1, VK_FORMAT_R8G8B8A8_SRGB,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1);
+
+    pDefaultTexture->LoadPixels(device, commandPool, whitePixel, 1, 1);
+    m_DeletionQueue.PushDeleter(pDefaultTexture->GetDeletionFlush());
+
+    //create a backup normal texture
+    m_Textures.push_back(std::make_unique<Texture>()); // index 1 will be the default normal texture
+    Texture* pDefaultNormalTexture = m_Textures.back().get();
+
+    pDefaultNormalTexture->Init(device, 1, 1, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1);
+
+    pDefaultNormalTexture->LoadPixels(device, commandPool, normalPixel, 1, 1);
+    m_DeletionQueue.PushDeleter(pDefaultNormalTexture->GetDeletionFlush());
+
+    //create a backup metallic-roughness texture
+    m_Textures.push_back(std::make_unique<Texture>()); // index 2 will be the default metallic-roughness texture
+    Texture* pDefaultMetallicRoughnessTexture = m_Textures.back().get();
+    pDefaultMetallicRoughnessTexture->Init(device, 1, 1, VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1);
+
+    pDefaultMetallicRoughnessTexture->LoadPixels(device, commandPool, metallicRoughnessPixel, 1, 1);
+    m_DeletionQueue.PushDeleter(pDefaultMetallicRoughnessTexture->GetDeletionFlush());
 }

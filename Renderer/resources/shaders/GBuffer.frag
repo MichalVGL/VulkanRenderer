@@ -3,7 +3,9 @@
 
 layout(location = 0) in vec3 fragNormal;
 layout(location = 1) in vec2 fragUV;
-layout(location = 2) in flat uint fragTextureIndex;
+layout(location = 2) flat in uint fragAlbedoIndex;
+layout(location = 3) flat in uint fragNormalIndex;
+layout(location = 4) flat in uint fragMaterialIndex;
 
 /*
 layout(push_constant) uniform PushConstants {
@@ -21,14 +23,14 @@ layout(location = 2) out vec4 outMaterial;  // unused for now
 void main()
 {
     // albedo from texture
-    outAlbedo = texture(globalTextures[nonuniformEXT(fragTextureIndex)], fragUV);
+    outAlbedo = texture(globalTextures[nonuniformEXT(fragAlbedoIndex)], fragUV);
 
     // octahedral encode normal
-    vec3 n = normalize(fragNormal);
+    vec3 n = normalize(texture(globalTextures[nonuniformEXT(fragNormalIndex)], fragUV).xyz);
     vec2 encoded = n.xy / (abs(n.x) + abs(n.y) + abs(n.z));
     if (n.z < 0.0)
         encoded = (1.0 - abs(encoded.yx)) * sign(encoded);
     outNormal = encoded * 0.5 + 0.5; // remap to [0,1]
 
-    outMaterial = vec4(0.0);
+    outMaterial = texture(globalTextures[nonuniformEXT(fragMaterialIndex)], fragUV);
 }

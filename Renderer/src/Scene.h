@@ -35,12 +35,17 @@ namespace dae
         void ProcessNode(aiNode* aiNodePtr, const aiScene* aiScenePtr, const glm::mat4x4& parentTransform);
         Mesh* ProcessMesh(aiMesh* aiMeshPtr, const Device& device, VkCommandPool commandPool, VkQueue graphicsQueue);
 
+		void CreateDefaultTextures(const Device& device, VkCommandPool commandPool);
+
         std::vector<std::unique_ptr<Mesh>> m_Meshes;
         std::vector<std::unique_ptr<Texture>> m_Textures;
         std::vector<std::unique_ptr<Material>> m_Materials;
         std::vector<RenderObject> m_RenderObjects;
 
-        std::unique_ptr<Texture> m_DefaultTexture; // in case of a missing texture
+        //std::unique_ptr<Texture> m_DefaultTexture; // in case of a missing texture
+        static constexpr int DEFAULT_DIFFUSE_TEXTURE_INDEX = 0;
+        static constexpr int DEFAULT_NORMAL_TEXTURE_INDEX = 1;
+        static constexpr int DEFAULT_METALIC_ROUGHNESS_TEXTURE_INDEX = 2;
 
         VkDescriptorPool m_DescriptorPool{ VK_NULL_HANDLE };
         VkDescriptorSet m_DescriptorSet{ VK_NULL_HANDLE };

@@ -92,15 +92,21 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
 	//color blending, no blending
-	VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-	colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	colorBlendAttachment.blendEnable = VK_FALSE;
+	std::vector<VkPipelineColorBlendAttachmentState> colorBlendAttachments(
+		info.colorAttachmentFormats.size());
+
+	for (auto& attachment : colorBlendAttachments)
+	{
+		attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+			| VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		attachment.blendEnable = VK_FALSE;
+	}
 
 	VkPipelineColorBlendStateCreateInfo colorBlending{};
 	colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
 	colorBlending.logicOpEnable = VK_FALSE;
-	colorBlending.attachmentCount = 1;
-	colorBlending.pAttachments = &colorBlendAttachment;
+	colorBlending.attachmentCount = static_cast<uint32_t>(colorBlendAttachments.size());
+	colorBlending.pAttachments = colorBlendAttachments.data();
 
 	// depth stencil
 	VkPipelineDepthStencilStateCreateInfo depthStencil{};

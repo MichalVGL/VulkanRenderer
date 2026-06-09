@@ -19,7 +19,7 @@ namespace dae
 		Texture& operator=(Texture&&) = delete;
 
 		void Init(const Device& device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, uint32_t mipLevels = 1);
-		void InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath);
+		void InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
 
 		void LoadPixels(const Device& device, VkCommandPool commandPool, void* pixels, uint32_t width, uint32_t height);
 

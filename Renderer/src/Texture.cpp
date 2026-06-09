@@ -49,7 +49,7 @@ void dae::Texture::Init(const Device& device, uint32_t width, uint32_t height, V
 	}
 }
 
-void dae::Texture::InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath)
+void dae::Texture::InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, VkFormat format)
 {
 	// read image
     int texWidth, texHeight, texChannels;
@@ -63,7 +63,7 @@ void dae::Texture::InitFromFile(const Device& device, VkCommandPool commandPool,
     uint32_t mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
 
     // init texture
-    Init(device, texWidth, texHeight, VK_FORMAT_R8G8B8A8_SRGB,
+    Init(device, texWidth, texHeight, format,
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, mipLevels);
 
     // load to gpu
