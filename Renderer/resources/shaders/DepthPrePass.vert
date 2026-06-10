@@ -22,6 +22,14 @@ layout(push_constant) uniform PushConstants {
     uint32_t materialTextureIndex;
 } push;
 
+layout(set = 1, binding = 0) uniform SceneData
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    vec4 cameraPos;
+} sceneData;
+
 layout(location = 0) out vec2 fragUV;
 
 void main()
@@ -31,6 +39,6 @@ void main()
     
     // Pull the exact vertex by index
     Vertex v = vb.vertices[gl_VertexIndex];
-    gl_Position = push.transform * vec4(v.position, 1.0);
+    gl_Position = sceneData.viewProj * push.transform * vec4(v.position, 1.0);
     fragUV = v.uv;
 }

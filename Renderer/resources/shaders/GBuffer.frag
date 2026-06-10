@@ -17,6 +17,16 @@ layout(push_constant) uniform PushConstants {
 // Unbounded runtime array of textures
 layout(set = 0, binding = 0) uniform sampler2D globalTextures[];
 
+/*
+layout(set = 1, binding = 0) uniform SceneData
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    vec4 cameraPos;
+} sceneData;
+*/
+
 //GBuffer
 layout(location = 0) out vec4 outAlbedo;
 layout(location = 1) out vec2 outNormal;    // encoded normal

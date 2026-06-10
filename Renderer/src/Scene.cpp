@@ -65,7 +65,7 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
             // Create and load the texture
             auto pNewTexture = std::make_unique<Texture>();
 
-            pNewTexture->InitFromFile(device, commandPool, fullTexturePath, VK_FORMAT_R8G8B8A8_UNORM);
+            pNewTexture->InitFromFile(device, commandPool, fullTexturePath, VK_FORMAT_R8G8B8A8_UNORM); //todo, to VK_FORMAT_R16G16B16A16_UNORM if slider are correct
             m_DeletionQueue.PushDeleter(pNewTexture->GetDeletionFlush());
 
             pNewMaterial->normalTextureIndex = static_cast<uint32_t>(m_Textures.size());

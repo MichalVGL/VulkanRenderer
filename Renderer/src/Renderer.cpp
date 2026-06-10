@@ -34,6 +34,27 @@ void dae::Renderer::Init(const Window* pWindow)
 	m_Swapchain.Init(m_Device, *m_pWindow, m_MaxFramesInFlight); //might change max frames in flight
 	m_DeletionQueue.PushDeleter(m_Swapchain.GetDeletionFlush());
 
+	// Create scene data layout that every frame uses
+	VkDescriptorSetLayoutBinding sceneDataBinding{};
+	sceneDataBinding.binding = 0;
+	sceneDataBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	sceneDataBinding.descriptorCount = 1;
+	sceneDataBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutCreateInfo sceneDataLayoutInfo{};
+	sceneDataLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	sceneDataLayoutInfo.bindingCount = 1;
+	sceneDataLayoutInfo.pBindings = &sceneDataBinding;
+
+	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
+		&sceneDataLayoutInfo, nullptr, &m_SceneDataLayout);
+
+	m_DeletionQueue.PushDeleter([this]()
+		{
+			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(), m_SceneDataLayout, nullptr);
+			m_SceneDataLayout = VK_NULL_HANDLE;
+		});
+
 	//==============================
 	// Images for deferred rendering 
 
@@ -79,8 +100,9 @@ void dae::Renderer::Init(const Window* pWindow)
 	depthPrePassPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
 	depthPrePassPipelineInfo.depthTestEnable = VK_TRUE;
 	depthPrePassPipelineInfo.depthWriteEnable = VK_TRUE;
-	depthPrePassPipelineInfo.descriptorLayout = DescriptorLayoutType::BindlessTextures; //still needed to check alpha
-	
+	depthPrePassPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures; //still needed to check alpha
+	depthPrePassPipelineInfo.sceneDataLayout = m_SceneDataLayout;
+
 	m_DepthPrePassPipeline.Init(m_Device, depthPrePassPipelineInfo);
 	m_DeletionQueue.PushDeleter(m_DepthPrePassPipeline.GetDeletionFlush());
 	
@@ -95,7 +117,8 @@ void dae::Renderer::Init(const Window* pWindow)
 	gBufferPipelineInfo.depthTestEnable = VK_TRUE;
 	gBufferPipelineInfo.depthWriteEnable = VK_FALSE;
 	gBufferPipelineInfo.depthCompareOp = VK_COMPARE_OP_EQUAL;
-	gBufferPipelineInfo.descriptorLayout = DescriptorLayoutType::BindlessTextures;
+	gBufferPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures;
+	gBufferPipelineInfo.sceneDataLayout = m_SceneDataLayout;
 
 	m_GBufferPipeline.Init(m_Device, gBufferPipelineInfo);
 	m_DeletionQueue.PushDeleter(m_GBufferPipeline.GetDeletionFlush());
@@ -110,7 +133,8 @@ void dae::Renderer::Init(const Window* pWindow)
 	lightingPipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
 	lightingPipelineInfo.depthTestEnable = VK_FALSE;
 	lightingPipelineInfo.depthWriteEnable = VK_FALSE;
-	lightingPipelineInfo.descriptorLayout = DescriptorLayoutType::GBuffer;
+	lightingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::GBuffer;
+	lightingPipelineInfo.sceneDataLayout = m_SceneDataLayout;
 
 	m_LightingPipeline.Init(m_Device, lightingPipelineInfo);
 	m_DeletionQueue.PushDeleter(m_LightingPipeline.GetDeletionFlush());
@@ -125,7 +149,7 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	for (auto& frame : m_Frames)
 	{
-		frame->Init(m_Device, m_CommandPool);
+		frame->Init(m_Device, m_CommandPool, m_SceneDataLayout);
 		m_DeletionQueue.PushDeleter(frame->GetDeletionFlush());
 	}
 
@@ -190,7 +214,7 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 
 	m_DepthPrePassPipeline.Bind(commandBuffer);
 
-	DrawScene(commandBuffer, scene);
+	DrawScene(commandBuffer, scene, currentFrame);
 	vkCmdEndRendering(commandBuffer);
 
 	//==============================
@@ -218,7 +242,6 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	gBufferAttachments[1] = MakeColorAttachment(m_NormalImage.GetImageView());
 	gBufferAttachments[2] = MakeColorAttachment(m_MaterialImage.GetImageView());
 
-	// depth attachment already made above in depth prepass
 	depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView(), false, false); //don't clear or store, already done in depth prepass
 
 	VkRenderingInfo geometryRenderingInfo{};
@@ -237,7 +260,7 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	m_GBufferPipeline.Bind(commandBuffer);
 
 	//draw scene to gbuffer (GBuffer pipeline is bound inside this function)
-	DrawScene(commandBuffer, scene);
+	DrawScene(commandBuffer, scene, currentFrame);
 	vkCmdEndRendering(commandBuffer);
 
 	//==============================
@@ -298,26 +321,38 @@ std::function<void()> dae::Renderer::GetDeletionFlush()
 	);
 }
 
-void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene)
+void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& currentFrame)
 {
-	//get the viewprojection matrix
+	//todo, move the scenedata building to the drawframe, now it calculates it multiple times due to deferred
+	// build scene data
 	glm::mat4 view = scene.GetCamera().GetCameraToWorld();
-
-	VkDescriptorSet globalSet = scene.GetDescriptorSet();
-	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS
-		, m_GBufferPipeline.GetPipelineLayout(),
-		0, 1, &globalSet, 0, nullptr);
-
 	glm::mat4 proj = glm::perspective(
 		glm::radians(scene.GetCamera().GetFOV()),
 		static_cast<float>(m_Swapchain.GetExtent().width) / static_cast<float>(m_Swapchain.GetExtent().height),
 		scene.GetCamera().m_Near,
 		scene.GetCamera().m_Far
 	);
-
 	proj[1][1] *= -1;
 
-	glm::mat4 viewProj = proj * view;
+	SceneData sceneData{};
+	sceneData.view = view;
+	sceneData.proj = proj;
+	sceneData.viewProj = proj * view;
+	sceneData.cameraPos = glm::vec4(scene.GetCamera().GetOrigin(), 1.0f);
+
+	currentFrame.UpdateSceneData(sceneData);
+
+	// set 0 = global descriptor set (textures)
+	VkDescriptorSet globalSet = scene.GetDescriptorSet();
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS
+		, m_GBufferPipeline.GetPipelineLayout(),
+		0, 1, &globalSet, 0, nullptr);
+
+	// set 1 = scene data UBO
+	VkDescriptorSet sceneDataSet = currentFrame.GetSceneDataDescriptorSet();
+	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		m_GBufferPipeline.GetPipelineLayout(),
+		1, 1, &sceneDataSet, 0, nullptr);
 
 	for (const auto& renderObject : scene.GetRenderObjects())
 	{
@@ -328,7 +363,7 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene)
 		}
 
 		PushConstants push{};
-		push.transform = viewProj * renderObject.transform;
+		push.transform = renderObject.transform;
 		push.vertexBufferAddress = renderObject.pMesh->GetVertexBufferAddress(m_Device);
 		push.albedoTextureIndex = renderObject.pMaterial->albedoTextureIndex;
 		push.normalTextureIndex = renderObject.pMaterial->normalTextureIndex;

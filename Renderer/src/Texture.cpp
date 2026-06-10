@@ -153,3 +153,19 @@ std::function<void()> dae::Texture::GetDeletionFlush()
 		std::bind(&DeletionQueue::Flush, &m_DeletionQueue)
 	);
 }
+
+uint32_t dae::Texture::GetBytesPerPixel(VkFormat format)
+{
+    switch (format)
+    {
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SRGB:
+        return 4;
+
+    case VK_FORMAT_R16G16B16A16_UNORM:
+        return 8;
+
+    default:
+        throw std::runtime_error("Unsupported texture format");
+    }
+}

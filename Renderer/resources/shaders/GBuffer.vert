@@ -22,6 +22,14 @@ layout(push_constant) uniform PushConstants {
     uint32_t materialTextureIndex;
 } push;
 
+layout(set = 1, binding = 0) uniform SceneData
+{
+    mat4 view;
+    mat4 proj;
+    mat4 viewProj;
+    vec4 cameraPos;
+} sceneData;
+
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec2 fragUV;
 
@@ -32,9 +40,9 @@ void main()
     
     // Pull the exact vertex by index
     Vertex v = vb.vertices[gl_VertexIndex];
-    gl_Position = push.transform * vec4(v.position, 1.0);
+    gl_Position = sceneData.viewProj * push.transform * vec4(v.position, 1.0);
     
     // Pass properties to fragment shader
-    fragNormal = mat3(push.transform) * v.normal; //todo, push model seperatly
+    fragNormal = mat3(sceneData.view) * v.normal; //todo, push model seperatly
     fragUV = v.uv;
 }

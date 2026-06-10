@@ -5,6 +5,8 @@
 #include "VulkanUtils.h"
 
 #include "DeletionQueue.h"
+#include "GraphicsTypes.h"
+#include "Buffer.h"
 
 namespace dae
 {
@@ -23,11 +25,15 @@ namespace dae
 		Frame& operator=(const Frame&) = delete;
 		Frame& operator=(Frame&&) = delete;
 
-		void Init(const Device& device, VkCommandPool commandPool);
+		void Init(const Device& device, VkCommandPool commandPool, VkDescriptorSetLayout sceneDataLayout);
 
 		// sync
 		void WaitForFence(const Device& device);
 		void ResetFence(const Device& device);
+
+		// scene data
+		void UpdateSceneData(const SceneData& data);
+		VkDescriptorSet GetSceneDataDescriptorSet() const { return m_SceneDataDescriptorSet; }
 
 		// command recording
 		VkCommandBuffer BeginCommands();
@@ -48,11 +54,18 @@ namespace dae
 
 		void CreateCommandBuffer(const Device& device, VkCommandPool commandPool);
 		void CreateSyncObjects(const Device& device);
+		void CreateSceneDataBuffer(const Device& device, VkDescriptorSetLayout sceneDataLayout);
 
 		VkCommandBuffer m_CommandBuffer{};
 		VkSemaphore m_ImageAvailableSemaphore{};
 		VkSemaphore m_RenderFinishedSemaphore{};
 		VkFence m_InFlightFence{};
+
+		//scene data
+		Buffer m_SceneDataBuffer{};
+		void* m_SceneDataMapped{ nullptr };
+		VkDescriptorPool m_SceneDataDescriptorPool{ VK_NULL_HANDLE };
+		VkDescriptorSet m_SceneDataDescriptorSet{ VK_NULL_HANDLE };
 
 		DeletionQueue m_DeletionQueue{};
 	};

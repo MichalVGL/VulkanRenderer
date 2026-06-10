@@ -9,7 +9,7 @@ namespace dae
 {
 	class Device;
 
-	enum class DescriptorLayoutType
+	enum class TexturesDescriptorLayoutType
 	{
 		BindlessTextures,	// larget texture array
 		GBuffer				// fixed GBuffer
@@ -28,7 +28,8 @@ namespace dae
 		VkPolygonMode polygonMode{ VK_POLYGON_MODE_FILL };
 		VkCullModeFlags cullMode{ VK_CULL_MODE_BACK_BIT };
 		VkFrontFace frontFace{ VK_FRONT_FACE_COUNTER_CLOCKWISE };
-		DescriptorLayoutType descriptorLayout{ DescriptorLayoutType::BindlessTextures };
+		TexturesDescriptorLayoutType texturesDescriptorLayout{ TexturesDescriptorLayoutType::BindlessTextures };
+		VkDescriptorSetLayout sceneDataLayout{ VK_NULL_HANDLE };
 	};
 
 	class Pipeline final

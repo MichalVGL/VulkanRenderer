@@ -29,6 +29,9 @@ namespace dae
 		VkSampler GetSampler() const { return m_Sampler; }
 
 	private:
+
+		uint32_t GetBytesPerPixel(VkFormat format);
+
 		Image m_Image{};
 		VkSampler m_Sampler{ VK_NULL_HANDLE };
 

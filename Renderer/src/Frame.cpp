@@ -3,7 +3,7 @@
 #include "Device.h"
 #include "Swapchain.h"
 
-void dae::Frame::Init(const Device& device, VkCommandPool commandPool)
+void dae::Frame::Init(const Device& device, VkCommandPool commandPool, VkDescriptorSetLayout sceneDataLayout)
 {
 	// verify input
 	if (device.IsInitialized() == false)
@@ -23,6 +23,7 @@ void dae::Frame::Init(const Device& device, VkCommandPool commandPool)
 
 	CreateCommandBuffer(device, commandPool);
 	CreateSyncObjects(device);
+	CreateSceneDataBuffer(device, sceneDataLayout);
 }
 
 void dae::Frame::WaitForFence(const Device& device)
@@ -33,6 +34,17 @@ void dae::Frame::WaitForFence(const Device& device)
 void dae::Frame::ResetFence(const Device& device)
 {
 	vkResetFences(device.GetLogicalDevice(), 1, &m_InFlightFence);
+}
+
+void dae::Frame::UpdateSceneData(const SceneData& data)
+{
+	if (m_SceneDataMapped == nullptr)
+	{
+		std::cout << "[Frame.cpp] scene data buffer is not mapped!\n";
+		return;
+	}
+
+	memcpy(m_SceneDataMapped, &data, sizeof(SceneData));
 }
 
 VkCommandBuffer dae::Frame::BeginCommands()
@@ -173,4 +185,66 @@ void dae::Frame::CreateSyncObjects(const Device& device)
 				m_InFlightFence = VK_NULL_HANDLE;
 			});
 	}
+}
+
+void dae::Frame::CreateSceneDataBuffer(const Device& device, VkDescriptorSetLayout sceneDataLayout)
+{
+	m_SceneDataBuffer.Init(device, sizeof(SceneData),
+		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		VMA_MEMORY_USAGE_CPU_TO_GPU);
+	m_DeletionQueue.PushDeleter(m_SceneDataBuffer.GetDeletionFlush());
+
+	m_SceneDataMapped = m_SceneDataBuffer.Map(device);
+	m_DeletionQueue.PushDeleter([this, allocator = device.GetAllocator()]()
+		{
+			m_SceneDataBuffer.Unmap(allocator);
+			m_SceneDataMapped = nullptr;
+		});
+
+	// descriptor pool
+	VkDescriptorPoolSize poolSize{};
+	poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	poolSize.descriptorCount = 1;
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = 1;
+
+	if (vkCreateDescriptorPool(device.GetLogicalDevice(), &poolInfo, nullptr, &m_SceneDataDescriptorPool) != VK_SUCCESS)
+		throw std::runtime_error("[Frame.cpp] failed to create scene data descriptor pool!");
+
+	m_DeletionQueue.PushDeleter([this, logicalDevice = device.GetLogicalDevice()]()
+		{
+			vkDestroyDescriptorPool(logicalDevice, m_SceneDataDescriptorPool, nullptr);
+			m_SceneDataDescriptorPool = VK_NULL_HANDLE;
+		});
+
+	// allocate descriptor set
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = m_SceneDataDescriptorPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &sceneDataLayout;
+
+	if (vkAllocateDescriptorSets(device.GetLogicalDevice(), &allocInfo, &m_SceneDataDescriptorSet) != VK_SUCCESS)
+		throw std::runtime_error("[Frame.cpp] failed to allocate scene data descriptor set!");
+
+	// write buffer into descriptor set
+	VkDescriptorBufferInfo bufferInfo{};
+	bufferInfo.buffer = m_SceneDataBuffer.GetBuffer();
+	bufferInfo.offset = 0;
+	bufferInfo.range = sizeof(SceneData);
+
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = m_SceneDataDescriptorSet;
+	write.dstBinding = 0;
+	write.dstArrayElement = 0;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	write.descriptorCount = 1;
+	write.pBufferInfo = &bufferInfo;
+
+	vkUpdateDescriptorSets(device.GetLogicalDevice(), 1, &write, 0, nullptr);
 }

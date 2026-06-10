@@ -66,15 +66,6 @@ namespace dae
 		VkPhysicalDeviceFeatures2 vulkanFeatures{};
 	};
 
-	struct PushConstants
-	{
-		glm::mat4 transform{};        // 64 bytes
-		uint64_t vertexBufferAddress{}; // 8 bytes
-		uint32_t albedoTextureIndex;
-		uint32_t normalTextureIndex;
-		uint32_t metalicRoughnessTextureIndex;
-	};
-
 	//===============================
 	// Functions
 	//===============================

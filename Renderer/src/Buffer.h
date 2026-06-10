@@ -25,6 +25,7 @@ namespace dae
 		// Helpers for mapping memory
 		void* Map(const Device& device);
 		void Unmap(const Device& device);
+		void Unmap(VmaAllocator allocator);
 
 		VkBuffer GetBuffer() const { return m_Buffer; }
 		VkDeviceSize GetSize() const { return m_Size; }

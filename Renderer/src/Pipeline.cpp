@@ -128,7 +128,7 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	std::vector<VkDescriptorSetLayoutBinding> bindings{};
 	VkDescriptorSetLayoutCreateInfo layoutInfo{};
 
-	if (info.descriptorLayout == DescriptorLayoutType::BindlessTextures)
+	if (info.texturesDescriptorLayout == TexturesDescriptorLayoutType::BindlessTextures)
 	{
 		VkDescriptorSetLayoutBinding& binding = bindings.emplace_back();
 		binding.binding = 0;
@@ -138,7 +138,7 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 
 		layoutInfo.pNext = &flagsInfo; // Enable variable descriptor count for bindless textures
 	} 
-	else if (info.descriptorLayout == DescriptorLayoutType::GBuffer)
+	else if (info.texturesDescriptorLayout == TexturesDescriptorLayoutType::GBuffer)
 	{
 		bindings.reserve(3);
 
@@ -172,11 +172,19 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 		m_DescriptorSetLayout = VK_NULL_HANDLE;
 		});
 
+	// layouts
+	std::vector<VkDescriptorSetLayout> setLayouts = {
+		m_DescriptorSetLayout
+	};
+
+	if (info.sceneDataLayout != VK_NULL_HANDLE)
+		setLayouts.push_back(info.sceneDataLayout);
+
 	// pipeline layout
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 	pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutInfo.setLayoutCount = 1;
-	pipelineLayoutInfo.pSetLayouts = &m_DescriptorSetLayout;
+	pipelineLayoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+	pipelineLayoutInfo.pSetLayouts = setLayouts.data();
 	pipelineLayoutInfo.pushConstantRangeCount = 1;
 
 	VkPushConstantRange pushRange{};

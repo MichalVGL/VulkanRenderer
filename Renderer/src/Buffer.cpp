@@ -52,6 +52,11 @@ void dae::Buffer::Unmap(const Device& device)
 	vmaUnmapMemory(device.GetAllocator(), m_Allocation);
 }
 
+void dae::Buffer::Unmap(VmaAllocator allocator)
+{
+	vmaUnmapMemory(allocator, m_Allocation);
+}
+
 VkDeviceAddress dae::Buffer::GetDeviceAddress(const Device& device) const
 {
 	VkBufferDeviceAddressInfo addressInfo{};

@@ -29,6 +29,24 @@ namespace dae
 		Material* pMaterial{ nullptr };
 		glm::mat4 transform{ 1.0f };
 	};
+
+	struct PushConstants
+	{
+		//todo, delete transform
+		glm::mat4 transform{};        // 64 bytes
+		uint64_t vertexBufferAddress{}; // 8 bytes
+		uint32_t albedoTextureIndex;
+		uint32_t normalTextureIndex;
+		uint32_t metalicRoughnessTextureIndex;
+	};
+
+	struct SceneData
+	{
+		glm::mat4 view{};
+		glm::mat4 proj{};
+		glm::mat4 viewProj{};
+		glm::vec4 cameraPos{}; // vec4 for alignment (w unused)
+	};
 }
 
 
