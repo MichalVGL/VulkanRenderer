@@ -43,7 +43,7 @@ namespace dae
 		void DeleteResources();
 
 		VkRenderingAttachmentInfo MakeColorAttachment(VkImageView view);
-		VkRenderingAttachmentInfo MakeDepthAttachment(VkImageView view, bool clearImageOnLoad, bool storeImage);
+		VkRenderingAttachmentInfo MakeDepthAttachment(VkImageView view, bool clearImageOnLoad, bool storeImage, VkImageLayout layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 		void SetViewportScissor(VkCommandBuffer cmd);
 
 		bool m_IsInitialized{ false };
@@ -64,6 +64,9 @@ namespace dae
 
 		//Scene data, only layout here (data is in the frame itself)
 		VkDescriptorSetLayout m_SceneDataLayout{ VK_NULL_HANDLE };
+
+		//Lights data, only layout here (data is in the frame itself)
+		VkDescriptorSetLayout m_LightLayout{ VK_NULL_HANDLE };
 
 		// GBuffer
 		dae::Image m_AlbedoImage{};

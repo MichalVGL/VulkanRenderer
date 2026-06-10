@@ -25,7 +25,8 @@ namespace dae
 		Frame& operator=(const Frame&) = delete;
 		Frame& operator=(Frame&&) = delete;
 
-		void Init(const Device& device, VkCommandPool commandPool, VkDescriptorSetLayout sceneDataLayout);
+		void Init(const Device& device, VkCommandPool commandPool
+			, VkDescriptorSetLayout sceneDataLayout, VkDescriptorSetLayout lightLayout);
 
 		// sync
 		void WaitForFence(const Device& device);
@@ -34,6 +35,10 @@ namespace dae
 		// scene data
 		void UpdateSceneData(const SceneData& data);
 		VkDescriptorSet GetSceneDataDescriptorSet() const { return m_SceneDataDescriptorSet; }
+
+		// lights
+		void UpdateLights(const std::vector<GPULight>& lights);
+		VkDescriptorSet GetLightDescriptorSet() const { return m_LightDescriptorSet; }
 
 		// command recording
 		VkCommandBuffer BeginCommands();
@@ -55,6 +60,7 @@ namespace dae
 		void CreateCommandBuffer(const Device& device, VkCommandPool commandPool);
 		void CreateSyncObjects(const Device& device);
 		void CreateSceneDataBuffer(const Device& device, VkDescriptorSetLayout sceneDataLayout);
+		void CreateLightBuffer(const Device& device, VkDescriptorSetLayout lightLayout);
 
 		VkCommandBuffer m_CommandBuffer{};
 		VkSemaphore m_ImageAvailableSemaphore{};
@@ -66,6 +72,13 @@ namespace dae
 		void* m_SceneDataMapped{ nullptr };
 		VkDescriptorPool m_SceneDataDescriptorPool{ VK_NULL_HANDLE };
 		VkDescriptorSet m_SceneDataDescriptorSet{ VK_NULL_HANDLE };
+
+		//lights
+		Buffer m_LightBuffer{};
+		void* m_LightMapped{ nullptr };
+		VkDescriptorPool m_LightPool{ VK_NULL_HANDLE };
+		VkDescriptorSet m_LightDescriptorSet{ VK_NULL_HANDLE };
+		uint32_t m_MaxLights{ 256 };
 
 		DeletionQueue m_DeletionQueue{};
 	};

@@ -13,6 +13,7 @@ namespace dae
 	{
 		glm::vec3 position{};
 		glm::vec3 normal{};
+		glm::vec4 tangent{}; // w = 1.0f for right-handed, -1.0f for left-handed
 		glm::vec2 uv{};
 	};
 
@@ -46,6 +47,25 @@ namespace dae
 		glm::mat4 proj{};
 		glm::mat4 viewProj{};
 		glm::vec4 cameraPos{}; // vec4 for alignment (w unused)
+		uint32_t lightCount{};
+		glm::vec3 padding{};
+	};
+
+	struct CPUPointLight {
+		glm::vec3 pos;
+		float lumen;
+		float temperature;
+	};
+
+	struct CPUDirectionalLight {
+		glm::vec3 dir;
+		float lux;
+		float temperature;
+	};
+
+	struct GPULight {
+		glm::vec4 posDir;		// xyz = position or direction, w = type flag (<0 for directional, >0 for point)
+		glm::vec4 color; 		// rgb = converted color, a = lumen or lux depending on type
 	};
 }
 

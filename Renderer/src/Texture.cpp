@@ -20,7 +20,7 @@ void dae::Texture::Init(const Device& device, uint32_t width, uint32_t height, V
 	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-	
+
 	VkPhysicalDeviceProperties properties{};
 	vkGetPhysicalDeviceProperties(device.GetPhysicalDevice(), &properties);
 
@@ -52,99 +52,115 @@ void dae::Texture::Init(const Device& device, uint32_t width, uint32_t height, V
 void dae::Texture::InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, VkFormat format)
 {
 	// read image
-    int texWidth, texHeight, texChannels;
-    stbi_uc* pixels = stbi_load(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	int texWidth, texHeight, texChannels;
 
-    if (!pixels) {
-        throw std::runtime_error("Failed to load texture file: " + filepath.string());
-    }
+	uint32_t bytesPerPixel = GetBytesPerPixel(format);
+	bool load16Bit = (bytesPerPixel == 8);
+
+	stbi_uc* pixels{};
+	stbi_us* pixels16{};
+
+	if (!load16Bit)
+		pixels = stbi_load(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	else 
+		pixels16 = stbi_load_16(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+
+	if (!pixels && !pixels16) {
+		throw std::runtime_error("Failed to load texture file: " + filepath.string());
+	}
 
 	// calculate mip levels
-    uint32_t mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
+	uint32_t mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
 
-    // init texture
-    Init(device, texWidth, texHeight, format,
-        VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, mipLevels);
+	// init texture
+	Init(device, texWidth, texHeight, format,
+		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, mipLevels);
 
-    // load to gpu
-    LoadPixels(device, commandPool, pixels, texWidth, texHeight);
+	// load to gpu
+	if (!load16Bit)
+		LoadPixels(device, commandPool, pixels, texWidth, texHeight, GetBytesPerPixel(format));
+	else
+		LoadPixels(device, commandPool, pixels16, texWidth, texHeight, GetBytesPerPixel(format));
 
 	// unload image from cpu memory
-    stbi_image_free(pixels);
+	if (!load16Bit)
+		stbi_image_free(pixels);
+	else
+		stbi_image_free(pixels16);
 }
 
-void dae::Texture::LoadPixels(const Device& device, VkCommandPool commandPool, void* pixels, uint32_t width, uint32_t height)
+void dae::Texture::LoadPixels(const Device& device, VkCommandPool commandPool, void* pixels, uint32_t width, uint32_t height, uint32_t pixelSize)
 {
-    VkDeviceSize imageSize = static_cast<VkDeviceSize>(width * height * 4);
+	VkDeviceSize imageSize = static_cast<VkDeviceSize>(width * height * pixelSize);
 
-    // buffer
-    Buffer stagingBuffer;
-    stagingBuffer.Init(device, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
+	// buffer
+	Buffer stagingBuffer;
+	stagingBuffer.Init(device, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
 
 	// copy data to buffer
-    void* data = stagingBuffer.Map(device);
-    memcpy(data, pixels, static_cast<size_t>(imageSize));
-    stagingBuffer.Unmap(device);
+	void* data = stagingBuffer.Map(device);
+	memcpy(data, pixels, static_cast<size_t>(imageSize));
+	stagingBuffer.Unmap(device);
 
 	// create command buffer
-    VkCommandBufferAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocInfo.commandPool = commandPool;
-    allocInfo.commandBufferCount = 1;
+	VkCommandBufferAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocInfo.commandPool = commandPool;
+	allocInfo.commandBufferCount = 1;
 
-    VkCommandBuffer commandBuffer;
-    vkAllocateCommandBuffers(device.GetLogicalDevice(), &allocInfo, &commandBuffer);
+	VkCommandBuffer commandBuffer;
+	vkAllocateCommandBuffers(device.GetLogicalDevice(), &allocInfo, &commandBuffer);
 
-    VkCommandBufferBeginInfo beginInfo{};
-    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	VkCommandBufferBeginInfo beginInfo{};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+	vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
 	// transition image
-    m_Image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+	m_Image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
 
 	// copy buffer to image
-    VkBufferImageCopy region{};
-    region.bufferOffset = 0;
-    region.bufferRowLength = 0;
-    region.bufferImageHeight = 0;
+	VkBufferImageCopy region{};
+	region.bufferOffset = 0;
+	region.bufferRowLength = 0;
+	region.bufferImageHeight = 0;
 
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount = 1;
 
-    region.imageOffset = { 0, 0, 0 };
-    region.imageExtent = { width, height, 1 };
+	region.imageOffset = { 0, 0, 0 };
+	region.imageExtent = { width, height, 1 };
 
-    vkCmdCopyBufferToImage(commandBuffer, stagingBuffer.GetBuffer(), m_Image.GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+	vkCmdCopyBufferToImage(commandBuffer, stagingBuffer.GetBuffer(), m_Image.GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
 	// generate mipmaps
-    m_Image.GenerateMipmaps(commandBuffer, width, height);
+	m_Image.GenerateMipmaps(commandBuffer, width, height);
 
 	// transition to shader read optimal
-    m_Image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+	m_Image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
 	// submit command buffer
-    vkEndCommandBuffer(commandBuffer);
+	vkEndCommandBuffer(commandBuffer);
 
-    VkSubmitInfo submitInfo{};
-    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &commandBuffer;
+	VkSubmitInfo submitInfo{};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
 
 	VkQueue graphicsQueue = device.GetGraphicsQueue();
-    vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+	vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
 
 	// wait for completion
-    vkQueueWaitIdle(graphicsQueue);
+	vkQueueWaitIdle(graphicsQueue);
 
-    // cleanup
-    vkFreeCommandBuffers(device.GetLogicalDevice(), commandPool, 1, &commandBuffer);
+	// cleanup
+	vkFreeCommandBuffers(device.GetLogicalDevice(), commandPool, 1, &commandBuffer);
 }
 
 std::function<void()> dae::Texture::GetDeletionFlush()
@@ -156,16 +172,16 @@ std::function<void()> dae::Texture::GetDeletionFlush()
 
 uint32_t dae::Texture::GetBytesPerPixel(VkFormat format)
 {
-    switch (format)
-    {
-    case VK_FORMAT_R8G8B8A8_UNORM:
-    case VK_FORMAT_R8G8B8A8_SRGB:
-        return 4;
+	switch (format)
+	{
+	case VK_FORMAT_R8G8B8A8_UNORM:
+	case VK_FORMAT_R8G8B8A8_SRGB:
+		return 4;
 
-    case VK_FORMAT_R16G16B16A16_UNORM:
-        return 8;
+	case VK_FORMAT_R16G16B16A16_UNORM:
+		return 8;
 
-    default:
-        throw std::runtime_error("Unsupported texture format");
-    }
+	default:
+		throw std::runtime_error("Unsupported texture format");
+	}
 }

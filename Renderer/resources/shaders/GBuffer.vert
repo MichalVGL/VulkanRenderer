@@ -7,7 +7,8 @@
 struct Vertex {
     vec3 position; // offset 0
     vec3 normal;   // offset 12
-    vec2 uv;       // offset 24
+    vec4 tangent;  // offset 24
+    vec2 uv;       // offset 40
 };
 
 layout(buffer_reference, scalar) readonly buffer VertexBuffer {
@@ -15,7 +16,7 @@ layout(buffer_reference, scalar) readonly buffer VertexBuffer {
 };
 
 layout(push_constant) uniform PushConstants {
-    mat4 transform; //todo, chang ename to mvp and push model seperatly
+    mat4 transform; //todo, rename to model transform
     uint64_t vertexBufferAddress;
     uint32_t albedoTextureIndex;
     uint32_t normalTextureIndex;
@@ -28,10 +29,12 @@ layout(set = 1, binding = 0) uniform SceneData
     mat4 proj;
     mat4 viewProj;
     vec4 cameraPos;
+    uint lightCount;
 } sceneData;
 
 layout(location = 0) out vec3 fragNormal;
-layout(location = 1) out vec2 fragUV;
+layout(location = 1) out vec4 fragTangent;
+layout(location = 2) out vec2 fragUV;
 
 void main()
 {
@@ -43,6 +46,7 @@ void main()
     gl_Position = sceneData.viewProj * push.transform * vec4(v.position, 1.0);
     
     // Pass properties to fragment shader
-    fragNormal = mat3(sceneData.view) * v.normal; //todo, push model seperatly
+    fragNormal = v.normal;
     fragUV = v.uv;
+    fragTangent = v.tangent;
 }

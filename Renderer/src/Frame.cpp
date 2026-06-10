@@ -3,7 +3,7 @@
 #include "Device.h"
 #include "Swapchain.h"
 
-void dae::Frame::Init(const Device& device, VkCommandPool commandPool, VkDescriptorSetLayout sceneDataLayout)
+void dae::Frame::Init(const Device& device, VkCommandPool commandPool, VkDescriptorSetLayout sceneDataLayout, VkDescriptorSetLayout lightLayout)
 {
 	// verify input
 	if (device.IsInitialized() == false)
@@ -24,6 +24,7 @@ void dae::Frame::Init(const Device& device, VkCommandPool commandPool, VkDescrip
 	CreateCommandBuffer(device, commandPool);
 	CreateSyncObjects(device);
 	CreateSceneDataBuffer(device, sceneDataLayout);
+	CreateLightBuffer(device, lightLayout);
 }
 
 void dae::Frame::WaitForFence(const Device& device)
@@ -45,6 +46,14 @@ void dae::Frame::UpdateSceneData(const SceneData& data)
 	}
 
 	memcpy(m_SceneDataMapped, &data, sizeof(SceneData));
+}
+
+void dae::Frame::UpdateLights(const std::vector<GPULight>& lights)
+{
+	if (m_LightMapped == nullptr) return;
+
+	uint32_t count = std::min(static_cast<uint32_t>(lights.size()), m_MaxLights);
+	memcpy(m_LightMapped, lights.data(), count * sizeof(GPULight));
 }
 
 VkCommandBuffer dae::Frame::BeginCommands()
@@ -243,6 +252,70 @@ void dae::Frame::CreateSceneDataBuffer(const Device& device, VkDescriptorSetLayo
 	write.dstBinding = 0;
 	write.dstArrayElement = 0;
 	write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	write.descriptorCount = 1;
+	write.pBufferInfo = &bufferInfo;
+
+	vkUpdateDescriptorSets(device.GetLogicalDevice(), 1, &write, 0, nullptr);
+}
+
+void dae::Frame::CreateLightBuffer(const Device& device, VkDescriptorSetLayout lightLayout)
+{
+	// create SSBO — sized for max lights
+	m_LightBuffer.Init(device,
+		sizeof(GPULight) * m_MaxLights,
+		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+	m_LightMapped = m_LightBuffer.Map(device);
+	m_DeletionQueue.PushDeleter(m_LightBuffer.GetDeletionFlush());
+
+	m_DeletionQueue.PushDeleter([this, allocator = device.GetAllocator()]()
+		{
+			m_LightBuffer.Unmap(allocator);
+		});
+
+	// descriptor pool
+	VkDescriptorPoolSize poolSize{};
+	poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	poolSize.descriptorCount = 1;
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = 1;
+
+	if (vkCreateDescriptorPool(device.GetLogicalDevice(), &poolInfo, nullptr, &m_LightPool) != VK_SUCCESS)
+		throw std::runtime_error("[Frame.cpp] failed to create light descriptor pool!");
+
+	m_DeletionQueue.PushDeleter([this, logicalDevice = device.GetLogicalDevice()]()
+		{
+			vkDestroyDescriptorPool(logicalDevice, m_LightPool, nullptr);
+			m_LightPool = VK_NULL_HANDLE;
+		});
+
+	// allocate descriptor set
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = m_LightPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &lightLayout;
+
+	if (vkAllocateDescriptorSets(device.GetLogicalDevice(), &allocInfo, &m_LightDescriptorSet) != VK_SUCCESS)
+		throw std::runtime_error("[Frame.cpp] failed to allocate light descriptor set!");
+
+	// write buffer
+	VkDescriptorBufferInfo bufferInfo{};
+	bufferInfo.buffer = m_LightBuffer.GetBuffer();
+	bufferInfo.offset = 0;
+	bufferInfo.range = sizeof(GPULight) * m_MaxLights;
+
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = m_LightDescriptorSet;
+	write.dstBinding = 0;
+	write.dstArrayElement = 0;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	write.descriptorCount = 1;
 	write.pBufferInfo = &bufferInfo;
 

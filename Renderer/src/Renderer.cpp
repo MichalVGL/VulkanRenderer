@@ -46,6 +46,28 @@ void dae::Renderer::Init(const Window* pWindow)
 	sceneDataLayoutInfo.bindingCount = 1;
 	sceneDataLayoutInfo.pBindings = &sceneDataBinding;
 
+	// lights from every frame
+	VkDescriptorSetLayoutBinding lightBinding{};
+	lightBinding.binding = 0;
+	lightBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	lightBinding.descriptorCount = 1;
+	lightBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutCreateInfo lightLayoutInfo{};
+	lightLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	lightLayoutInfo.bindingCount = 1;
+	lightLayoutInfo.pBindings = &lightBinding;
+
+	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
+		&lightLayoutInfo, nullptr, &m_LightLayout);
+
+	m_DeletionQueue.PushDeleter([this]()
+		{
+			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(),
+				m_LightLayout, nullptr);
+			m_LightLayout = VK_NULL_HANDLE;
+		});
+
 	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
 		&sceneDataLayoutInfo, nullptr, &m_SceneDataLayout);
 
@@ -83,7 +105,7 @@ void dae::Renderer::Init(const Window* pWindow)
 	// Depth image
 	m_DepthImage.Init(m_Device, extent.width, extent.height,
 		VK_FORMAT_D32_SFLOAT,
-		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_DEPTH_BIT, 1);
 	m_DeletionQueue.PushDeleter(m_DepthImage.GetDeletionFlush());
 
@@ -101,7 +123,7 @@ void dae::Renderer::Init(const Window* pWindow)
 	depthPrePassPipelineInfo.depthTestEnable = VK_TRUE;
 	depthPrePassPipelineInfo.depthWriteEnable = VK_TRUE;
 	depthPrePassPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures; //still needed to check alpha
-	depthPrePassPipelineInfo.sceneDataLayout = m_SceneDataLayout;
+	depthPrePassPipelineInfo.additionalSetLayouts = { m_SceneDataLayout };
 
 	m_DepthPrePassPipeline.Init(m_Device, depthPrePassPipelineInfo);
 	m_DeletionQueue.PushDeleter(m_DepthPrePassPipeline.GetDeletionFlush());
@@ -118,7 +140,7 @@ void dae::Renderer::Init(const Window* pWindow)
 	gBufferPipelineInfo.depthWriteEnable = VK_FALSE;
 	gBufferPipelineInfo.depthCompareOp = VK_COMPARE_OP_EQUAL;
 	gBufferPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures;
-	gBufferPipelineInfo.sceneDataLayout = m_SceneDataLayout;
+	gBufferPipelineInfo.additionalSetLayouts = { m_SceneDataLayout };
 
 	m_GBufferPipeline.Init(m_Device, gBufferPipelineInfo);
 	m_DeletionQueue.PushDeleter(m_GBufferPipeline.GetDeletionFlush());
@@ -130,11 +152,11 @@ void dae::Renderer::Init(const Window* pWindow)
 	lightingPipelineInfo.colorAttachmentFormats = { m_Swapchain.GetImageFormat() };
 	lightingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	lightingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
-	lightingPipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+	lightingPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
 	lightingPipelineInfo.depthTestEnable = VK_FALSE;
 	lightingPipelineInfo.depthWriteEnable = VK_FALSE;
 	lightingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::GBuffer;
-	lightingPipelineInfo.sceneDataLayout = m_SceneDataLayout;
+	lightingPipelineInfo.additionalSetLayouts = { m_SceneDataLayout, m_LightLayout };
 
 	m_LightingPipeline.Init(m_Device, lightingPipelineInfo);
 	m_DeletionQueue.PushDeleter(m_LightingPipeline.GetDeletionFlush());
@@ -149,7 +171,7 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	for (auto& frame : m_Frames)
 	{
-		frame->Init(m_Device, m_CommandPool, m_SceneDataLayout);
+		frame->Init(m_Device, m_CommandPool, m_SceneDataLayout, m_LightLayout);
 		m_DeletionQueue.PushDeleter(frame->GetDeletionFlush());
 	}
 
@@ -242,7 +264,7 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	gBufferAttachments[1] = MakeColorAttachment(m_NormalImage.GetImageView());
 	gBufferAttachments[2] = MakeColorAttachment(m_MaterialImage.GetImageView());
 
-	depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView(), false, false); //don't clear or store, already done in depth prepass
+	depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView(), false, true); //dont clear depth again, but keep it for lighting pass
 
 	VkRenderingInfo geometryRenderingInfo{};
 	geometryRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -277,12 +299,36 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 		VK_ACCESS_2_SHADER_READ_BIT);
 
+	// Depth (read only)
+	m_DepthImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT);
+
 	// SwapImage
 	image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
+	// update light info for the current frame
+	const auto& directionalLights = scene.GetDirectionalLights();
+	const auto& pointLights = scene.GetPointLights();
+	std::vector<GPULight> gpuLights{};
+	gpuLights.reserve(directionalLights.size() + pointLights.size());
+
+	for (const auto& light : directionalLights)
+	{
+		gpuLights.push_back(ConvertDirectionalLight(light));
+	}
+	for (const auto& light : pointLights)
+	{
+		gpuLights.push_back(ConvertPointLight(light));
+	}
+
+	currentFrame.UpdateLights(gpuLights);
+
 	VkRenderingAttachmentInfo swapAttachment = MakeColorAttachment(image.GetImageView());
+
+	depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView(), false, false, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL); //dont clear depth and dont store it
 
 	VkRenderingInfo lightingRenderingInfo{};
 	lightingRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -290,13 +336,20 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	lightingRenderingInfo.layerCount = 1;
 	lightingRenderingInfo.colorAttachmentCount = 1;
 	lightingRenderingInfo.pColorAttachments = &swapAttachment;
-	// no depth attachment
+	lightingRenderingInfo.pDepthAttachment = &depthAttachment;
 
 	vkCmdBeginRendering(commandBuffer, &lightingRenderingInfo);
 	SetViewportScissor(commandBuffer);
 	m_LightingPipeline.Bind(commandBuffer);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		m_LightingPipeline.GetPipelineLayout(), 0, 1, &m_GBufferDescriptorSet, 0, nullptr);
+	VkDescriptorSet sceneDataSet = currentFrame.GetSceneDataDescriptorSet();
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		m_LightingPipeline.GetPipelineLayout(), 1, 1, &sceneDataSet, 0, nullptr);
+	VkDescriptorSet lightSet = currentFrame.GetLightDescriptorSet();
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		m_LightingPipeline.GetPipelineLayout(),
+		2, 1, &lightSet, 0, nullptr);
 	vkCmdDraw(commandBuffer, 3, 1, 0, 0); // fullscreen triangle, hardcoded in shader
 	vkCmdEndRendering(commandBuffer);
 
@@ -339,6 +392,7 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& cu
 	sceneData.proj = proj;
 	sceneData.viewProj = proj * view;
 	sceneData.cameraPos = glm::vec4(scene.GetCamera().GetOrigin(), 1.0f);
+	sceneData.lightCount = static_cast<uint32_t>(scene.GetDirectionalLights().size() + scene.GetPointLights().size());
 
 	currentFrame.UpdateSceneData(sceneData);
 
@@ -437,7 +491,7 @@ void dae::Renderer::InitializeGBuffer()
 
 	VkDescriptorPoolSize poolSize{};
 	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSize.descriptorCount = 3;
+	poolSize.descriptorCount = 4; // albedo, normal, material, depth
 
 	VkDescriptorPoolCreateInfo poolInfo{};
 	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -493,7 +547,12 @@ void dae::Renderer::InitializeGBuffer()
 	materialInfo.imageView = m_MaterialImage.GetImageView();
 	materialInfo.sampler = m_GBufferSampler;
 
-	std::array<VkWriteDescriptorSet, 3> writes{};
+	VkDescriptorImageInfo& depthInfo = imageInfos.emplace_back(VkDescriptorImageInfo{});
+	depthInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+	depthInfo.imageView = m_DepthImage.GetImageView();
+	depthInfo.sampler = m_GBufferSampler;
+
+	std::array<VkWriteDescriptorSet, 4> writes{};
 	writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	writes[0].dstSet = m_GBufferDescriptorSet;
 	writes[0].dstBinding = 0;
@@ -518,6 +577,14 @@ void dae::Renderer::InitializeGBuffer()
 	writes[2].descriptorCount = 1;
 	writes[2].pImageInfo = &imageInfos[2];
 
+	writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writes[3].dstSet = m_GBufferDescriptorSet;
+	writes[3].dstBinding = 3;
+	writes[3].dstArrayElement = 0;
+	writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	writes[3].descriptorCount = 1;
+	writes[3].pImageInfo = &imageInfos[3];
+
 	vkUpdateDescriptorSets(m_Device.GetLogicalDevice(),
 		static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
@@ -539,12 +606,12 @@ VkRenderingAttachmentInfo dae::Renderer::MakeColorAttachment(VkImageView view)
 	return attachment;
 }
 
-VkRenderingAttachmentInfo dae::Renderer::MakeDepthAttachment(VkImageView view, bool clearImageOnLoad, bool storeImage)
+VkRenderingAttachmentInfo dae::Renderer::MakeDepthAttachment(VkImageView view, bool clearImageOnLoad, bool storeImage, VkImageLayout layout)
 {
 	VkRenderingAttachmentInfo attachment{};
 	attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 	attachment.imageView = view;
-	attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+	attachment.imageLayout = layout;
 	attachment.loadOp = clearImageOnLoad ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 	attachment.storeOp = storeImage ? VK_ATTACHMENT_STORE_OP_STORE : VK_ATTACHMENT_STORE_OP_DONT_CARE;
 	attachment.clearValue.depthStencil.depth = 1.0f;

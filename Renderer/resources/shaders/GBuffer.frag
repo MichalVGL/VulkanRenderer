@@ -4,7 +4,8 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
 
 layout(location = 0) in vec3 fragNormal;
-layout(location = 1) in vec2 fragUV;
+layout(location = 1) in vec4 fragTangent;
+layout(location = 2) in vec2 fragUV;
 
 layout(push_constant) uniform PushConstants {
     mat4 transform;
@@ -16,16 +17,6 @@ layout(push_constant) uniform PushConstants {
 
 // Unbounded runtime array of textures
 layout(set = 0, binding = 0) uniform sampler2D globalTextures[];
-
-/*
-layout(set = 1, binding = 0) uniform SceneData
-{
-    mat4 view;
-    mat4 proj;
-    mat4 viewProj;
-    vec4 cameraPos;
-} sceneData;
-*/
 
 //GBuffer
 layout(location = 0) out vec4 outAlbedo;
@@ -60,9 +51,19 @@ void main()
         discard;
 
     outAlbedo = albedo;
+    
+    vec3 N = normalize(fragNormal);
+    vec3 T = normalize(fragTangent.xyz);
+    T = normalize(T - dot(T, N) * N);
+    vec3 B = normalize(cross(N, T) * sign(fragTangent.w)); // bitangent sign stored in tangent.w
+    
+    mat3 TBN = mat3(T, B, N);
 
-    vec3 n = normalize(texture(globalTextures[nonuniformEXT(push.normalTextureIndex)], fragUV).xyz);
-    outNormal = EncodeNormal(n); // octahedral encode
+    vec3 normalSample = texture(globalTextures[nonuniformEXT(push.normalTextureIndex)], fragUV).xyz;
+    normalSample = normalize(normalSample * 2.0 - 1.0); // remap from [0,1] to [-1,1]
+    outNormal = EncodeNormal(TBN * normalSample); // octahedral encode
+
+    //outNormal = EncodeNormal(normalize(fragNormal.xyz));
 
     outMaterial = texture(globalTextures[nonuniformEXT(push.materialTextureIndex)], fragUV);
 }

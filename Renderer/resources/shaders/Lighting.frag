@@ -1,11 +1,18 @@
 #version 450
 #extension GL_EXT_nonuniform_qualifier : require
 
+struct GPULight
+{
+    vec4 posDir;
+    vec4 color;
+};
+
 layout(location = 0) in vec2 fragUV;
 
 layout(set = 0, binding = 0) uniform sampler2D gAlbedo;
 layout(set = 0, binding = 1) uniform sampler2D gNormal;
 layout(set = 0, binding = 2) uniform sampler2D gMaterial;
+layout(set = 0, binding = 3) uniform sampler2D gDepth;
 
 layout(set = 1, binding = 0) uniform SceneData
 {
@@ -13,7 +20,13 @@ layout(set = 1, binding = 0) uniform SceneData
     mat4 proj;
     mat4 viewProj;
     vec4 cameraPos;
+    uint lightCount;
 } sceneData;
+
+layout(set = 2, binding = 0) readonly buffer LightBuffer
+{
+    GPULight lights[];
+} lightBuffer;
 
 layout(location = 0) out vec4 outColor;
 
@@ -37,15 +50,41 @@ vec3 DecodeNormal(vec2 e)
     return normalize(n);
 }
 
+// ==================
+// World Position Reconstruction
+// ==================
+
+vec3 ReconstructWorldPos(in float depth)
+{
+    
+    vec4 clipPos = vec4(fragUV * 2.0f - 1.0f, depth * 2.0 - 1.0, 1.0f);
+    //vec4 clipPos = vec4(fragUV * 2.0f - 1.0f, depth, 1.0f);
+    //inverse projection to viewspace
+    vec4 viewPos = inverse(sceneData.proj) * clipPos;
+    viewPos /= viewPos.w;
+
+    //inverse view to worldspace
+    vec4 worldPos = inverse(sceneData.view) * viewPos;
+
+    return worldPos.xyz;
+}
+
 //==================
 // Const Values
 //==================
 
 const float PI = 3.14159265359;
+const float AO = 5.0; // constant ambient occlusion
+
+// Hardcoded light data for testing
+const vec3 direction = -vec3(0.577f, -0.577f, -0.577f);
+const float lightIntensity = 1.f;
 
 //==================
 // Lighting functions (declarations)
 //==================
+
+vec3 KelvinToRgb(in float kelvin);
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0);
 float DistributionGGX(vec3 N, vec3 H, float roughness);
@@ -59,12 +98,13 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness);
 void main()
 {
     //albedo
-    vec4 albedo = texture(gAlbedo, fragUV);
-    outColor = vec4(albedo.rgb, 1.0);
+    //vec4 albedo = texture(gAlbedo, fragUV);
+    //outColor = vec4(albedo.rgb, 1.0);
 
     //normal
     //vec4 normal = texture(gNormal, fragUV);
-    //outColor = vec4(normal.rg, 0.0, 1.0);
+    //vec3 worldNormal = DecodeNormal(normal.xy);
+    //outColor = vec4(worldNormal, 1.f);
 
     //metalness
     //vec4 albedo = texture(gMaterial, fragUV);
@@ -74,49 +114,107 @@ void main()
     //vec4 albedo = texture(gMaterial, fragUV);
     //outColor = vec4(albedo.g, albedo.g, albedo.g, 1.0);
 
-/*
-    vec3 N = normalize(Normal);
-    vec3 V = normalize(camPos - WorldPos);
+    //depth
+    //float depth = texture(gDepth, fragUV).r;
+    //outColor = vec4(vec3(depth), 1.0);
 
-    vec3 F0 = vec3(0.04); 
-    F0 = mix(F0, albedo, metallic);
-	           
-    // reflectance equation
+    //normal
+    //vec4 normal = texture(gNormal, fragUV);
+    //vec3 worldNormal = DecodeNormal(normal.xy);
+    //outColor = vec4(worldNormal.r, worldNormal.r, worldNormal.r, 1.f);
+
+    ///*
+
+    vec4 albedoSample = texture(gAlbedo, fragUV);
+    vec4 normalSample = texture(gNormal, fragUV);
+    vec4 materialSample = texture(gMaterial, fragUV);
+    float depth = texelFetch(gDepth, ivec2(gl_FragCoord.xy), 0).r;
+
+    vec3 albedo = albedoSample.rgb;
+    float roughness = materialSample.g;  // adjust channels to match your GBuffer layout
+    float metallic = materialSample.b;
+
+    vec3 N = DecodeNormal(normalSample.rg);
+    vec3 worldPos = ReconstructWorldPos(depth);
+    vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
+
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
     vec3 Lo = vec3(0.0);
-    for(int i = 0; i < 4; ++i) 
+
+    for(int i = 0; i < sceneData.lightCount; ++i) //todo: loop over actual lights
     {
-        // calculate per-light radiance
-        vec3 L = normalize(lightPositions[i] - WorldPos);
+        //vec3 L = normalize(lightPositions[i] - WorldPos);
+        vec3 L = normalize(direction);
         vec3 H = normalize(V + L);
-        float distance    = length(lightPositions[i] - WorldPos);
-        float attenuation = 1.0 / (distance * distance);
-        vec3 radiance     = lightColors[i] * attenuation;        
+
         
-        // cook-torrance brdf
+
+        //DIRECTIONAL LIGHT
+        //const float illuminance = light.lux;
+        //const float irradiance = light.color * illuminance;
+
+        //POINT LIGHT
+        //const float lumen = light.lumen;
+        //const float luminousIntensity = lumen / (4.0 * PI);
+
+        //const float distance    = length(lightPositions[i] - WorldPos);
+        //const float attenuation = 1.0 / max(distance * distance, 0.0001);
+        //const float illuminance = luminousIntensity * attenuation;
+        //const float irradiance = lightColor * illuminance;
+
+        //todo, convert to radiance via lambertian diffuse
+
+        vec3 radiance = vec3(lightIntensity);
+
         float NDF = DistributionGGX(N, H, roughness);        
-        float G   = GeometrySmith(N, V, L, roughness);      
-        vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);       
-        
+        float G = GeometrySmith(N, V, L, roughness);      
+        vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
         vec3 kS = F;
         vec3 kD = vec3(1.0) - kS;
-        kD *= 1.0 - metallic;	  
-        
-        vec3 numerator    = NDF * G * F;
+        kD *= 1.0 - metallic;
+
+        vec3 numerator = NDF * G * F;
         float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
-        vec3 specular     = numerator / denominator;  
-            
-        // add to outgoing radiance Lo
+        vec3 specular = numerator / denominator;
+
         float NdotL = max(dot(N, L), 0.0);                
-        Lo += (kD * albedo / PI + specular) * radiance * NdotL; 
-    }   
-  
-    vec3 ambient = vec3(0.03) * albedo * ao;
+        Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+    }
+
+    vec3 ambient = vec3(0.03) * albedo * AO;
     vec3 color = ambient + Lo;
-	
+
     color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0/2.2));  
-   
-    FragColor = vec4(color, 1.0);*/
+    color = pow(color, vec3(1.0 / 2.2));
+
+    outColor = vec4(color, 1.0);
+    //*/
+}
+
+//based on the slides, move to cpu
+vec3 KelvinToRgb(in float kelvin)
+{
+    const float temp = kelvin / 100.0f;
+
+    // Red
+    const float r = (temp <= 66.0f) 
+        ? 1.0f 
+        : clamp(1.292935618906f * pow(temp - 60.0f, -0.1332047592f), 0.0f, 1.0f);
+
+    // Green
+    const float g = (temp <= 66.0f)
+        ? clamp(0.390081578769f * log(temp) - 0.63141844378f, 0.0f, 1.0f)
+        : clamp(1.12989086089f * pow(temp - 60.0f, -0.0755148492f), 0.0f, 1.0f);
+
+    // Blue
+    const float b = (temp >= 66.0f)
+        ? 1.0f
+        : (temp <= 19.0f) 
+            ? 0.0f
+            : clamp(0.54320678911f * log(temp - 10.0f) - 1.19625408914f, 0.0f, 1.0f);
+
+    return vec3(r, g, b);
 }
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
@@ -126,7 +224,7 @@ vec3 fresnelSchlick(float cosTheta, vec3 F0)
 
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
-    float a      = roughness*roughness;
+    float a      = roughness; // Unity convention
     float a2     = a*a;
     float NdotH  = max(dot(N, H), 0.0);
     float NdotH2 = NdotH*NdotH;

@@ -29,7 +29,8 @@ namespace dae
 		VkCullModeFlags cullMode{ VK_CULL_MODE_BACK_BIT };
 		VkFrontFace frontFace{ VK_FRONT_FACE_COUNTER_CLOCKWISE };
 		TexturesDescriptorLayoutType texturesDescriptorLayout{ TexturesDescriptorLayoutType::BindlessTextures };
-		VkDescriptorSetLayout sceneDataLayout{ VK_NULL_HANDLE };
+		//VkDescriptorSetLayout sceneDataLayout{ VK_NULL_HANDLE };
+		std::vector<VkDescriptorSetLayout> additionalSetLayouts{}; // scenedata, lights,...
 	};
 
 	class Pipeline final

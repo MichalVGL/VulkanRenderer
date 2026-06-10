@@ -7,7 +7,8 @@
 struct Vertex {
     vec3 position; // offset 0
     vec3 normal;   // offset 12
-    vec2 uv;       // offset 24
+    vec4 tangent;  // offset 24
+    vec2 uv;       // offset 40
 };
 
 layout(buffer_reference, scalar) readonly buffer VertexBuffer {

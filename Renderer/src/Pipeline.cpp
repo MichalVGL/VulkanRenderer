@@ -142,7 +142,7 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	{
 		bindings.reserve(3);
 
-		for (int i = 0; i < 3; i++)
+		for (int i = 0; i < 4; i++) // albedo, normal, material (mettalic/roughness), depth
 		{
 			VkDescriptorSetLayoutBinding& binding = bindings.emplace_back();
 			binding.binding = i;
@@ -177,8 +177,8 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 		m_DescriptorSetLayout
 	};
 
-	if (info.sceneDataLayout != VK_NULL_HANDLE)
-		setLayouts.push_back(info.sceneDataLayout);
+	for (auto& additionalLayout : info.additionalSetLayouts)
+		setLayouts.push_back(additionalLayout);
 
 	// pipeline layout
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo{};

@@ -6,6 +6,7 @@
 #include "Texture.h"
 #include "GraphicsTypes.h"
 #include "Camera.h"
+#include "LightUtils.h"
 
 namespace dae
 {
@@ -25,15 +26,17 @@ namespace dae
 
         const std::vector<RenderObject>& GetRenderObjects() const { return m_RenderObjects; }
 		const Camera& GetCamera() const { return m_Camera; }
-        VkDescriptorSet GetDescriptorSet() const { return m_DescriptorSet; }
         Camera& GetCamera() { return m_Camera; }
+        VkDescriptorSet GetDescriptorSet() const { return m_DescriptorSet; }
+		const std::vector<CPUDirectionalLight>& GetDirectionalLights() const { return m_DirectionalLights; }
+		const std::vector<CPUPointLight>& GetPointLights() const { return m_PointLights; }
 
 		std::function<void()> GetDeletionFlush();
 
     private:
         // Assimp forward declarations (or just hide behind void* if preferred, but easy enough to do internally)
         void ProcessNode(aiNode* aiNodePtr, const aiScene* aiScenePtr, const glm::mat4x4& parentTransform);
-        Mesh* ProcessMesh(aiMesh* aiMeshPtr, const Device& device, VkCommandPool commandPool, VkQueue graphicsQueue);
+        Mesh* ProcessMesh(aiMesh* aiMeshPtr, const aiMatrix4x4& rootTransform, const Device& device, VkCommandPool commandPool, VkQueue graphicsQueue);
 
 		void CreateDefaultTextures(const Device& device, VkCommandPool commandPool);
 
@@ -47,10 +50,15 @@ namespace dae
         static constexpr int DEFAULT_NORMAL_TEXTURE_INDEX = 1;
         static constexpr int DEFAULT_METALIC_ROUGHNESS_TEXTURE_INDEX = 2;
 
+        static constexpr float UNIT_SCALE = 100.f; //sponza is at 0.008 scale. I assume that is in cm, so scale to m
+
         VkDescriptorPool m_DescriptorPool{ VK_NULL_HANDLE };
         VkDescriptorSet m_DescriptorSet{ VK_NULL_HANDLE };
 
 		Camera m_Camera{};
+
+        std::vector<CPUDirectionalLight> m_DirectionalLights{};
+        std::vector<CPUPointLight> m_PointLights{};
 
         DeletionQueue m_DeletionQueue{};
     };
