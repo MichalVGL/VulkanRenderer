@@ -45,7 +45,6 @@ namespace dae
         std::vector<std::unique_ptr<Material>> m_Materials;
         std::vector<RenderObject> m_RenderObjects;
 
-        //std::unique_ptr<Texture> m_DefaultTexture; // in case of a missing texture
         static constexpr int DEFAULT_DIFFUSE_TEXTURE_INDEX = 0;
         static constexpr int DEFAULT_NORMAL_TEXTURE_INDEX = 1;
         static constexpr int DEFAULT_METALIC_ROUGHNESS_TEXTURE_INDEX = 2;

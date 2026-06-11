@@ -50,9 +50,10 @@ void dae::Frame::UpdateSceneData(const SceneData& data)
 
 void dae::Frame::UpdateLights(const std::vector<GPULight>& lights)
 {
-	if (m_LightMapped == nullptr) return;
+	if (m_LightMapped == nullptr) 
+		return;
 
-	uint32_t count = std::min(static_cast<uint32_t>(lights.size()), m_MaxLights);
+	uint32_t count = std::min(static_cast<uint32_t>(lights.size()), m_MaxLights); //clamp to max supported lights
 	memcpy(m_LightMapped, lights.data(), count * sizeof(GPULight));
 }
 

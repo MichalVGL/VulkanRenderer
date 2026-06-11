@@ -12,7 +12,8 @@ namespace dae
 	enum class TexturesDescriptorLayoutType
 	{
 		BindlessTextures,	// larget texture array
-		GBuffer				// fixed GBuffer
+		GBuffer,				// fixed GBuffer
+		HDRImage			//blitting pass
 	};
 
 	struct PipelineInfo

@@ -191,16 +191,16 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 			vkDeviceWaitIdle(logicalDevice);
 		});
 
-	// Add lights
+	//Add lights
 	//auto& dLight = m_DirectionalLights.emplace_back();
 	////sun light
-	//dLight.dir = glm::vec3(0.f, 1.f, 0.f); // Directional light pointing downwards
-	//dLight.lux = 15000; 
+	//dLight.dir = glm::vec3(0.f, -1.f, 0.f); // Directional light pointing downwards
+	//dLight.lux = 10; 
 	//dLight.temperature = 2700; // Daylight temperature
 
 	auto& pLight1 = m_PointLights.emplace_back();
-	pLight1.pos = glm::vec3(3.f, 2.f, 0.f);
-	pLight1.lumen = 800.f;
+	pLight1.pos = glm::vec3(3.f, 1.f, 0.f);
+	pLight1.lumen = 100.f;
 	pLight1.temperature = 2700; // Daylight temperature
 }
 
@@ -335,21 +335,19 @@ dae::Mesh* dae::Scene::ProcessMesh(aiMesh* aiMeshPtr, const aiMatrix4x4& rootTra
 
 void dae::Scene::CreateDefaultTextures(const Device& device, VkCommandPool commandPool)
 {
-	unsigned char whitePixel[4] =
+	uint32_t whitePixel[4] =
 	{
 		255, 255, 255, 255
 	};
 
-	// Flat normal
-	unsigned char normalPixel[4] =
+	uint64_t normalPixel[4] =
 	{
 		128, 128, 255, 255
 	};
 
-	// Rough dielectric
-	unsigned char metallicRoughnessPixel[4] =
+	uint32_t metallicRoughnessPixel[4] =
 	{
-		0, 255, 0, 255
+		0, 255, 0, 0
 	};
 
 	//create a backup white texture
@@ -366,10 +364,10 @@ void dae::Scene::CreateDefaultTextures(const Device& device, VkCommandPool comma
 	m_Textures.push_back(std::make_unique<Texture>()); // index 1 will be the default normal texture
 	Texture* pDefaultNormalTexture = m_Textures.back().get();
 
-	pDefaultNormalTexture->Init(device, 1, 1, VK_FORMAT_R8G8B8A8_UNORM,
+	pDefaultNormalTexture->Init(device, 1, 1, VK_FORMAT_R16G16B16A16_UNORM,
 		VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, 1);
 
-	pDefaultNormalTexture->LoadPixels(device, commandPool, normalPixel, 1, 1);
+	pDefaultNormalTexture->LoadPixels(device, commandPool, normalPixel, 1, 1, 8u);
 	m_DeletionQueue.PushDeleter(pDefaultNormalTexture->GetDeletionFlush());
 
 	//create a backup metallic-roughness texture

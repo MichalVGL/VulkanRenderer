@@ -37,8 +37,8 @@ namespace dae
 		VkExtent2D ChooseSwapExtent(const VkSurfaceCapabilitiesKHR& capabilities, GLFWwindow* pWindow);
 
 		VkSwapchainKHR m_SwapChain{};
-		//std::vector<VkImage> m_SwapChainImages{};
 		std::vector<std::unique_ptr<ImageRef>> m_SwapChainImages{};
+		//std::vector<std::unique_ptr<Image>> m_HDRImages{};
 		VkFormat m_SwapChainImageFormat{};
 		VkExtent2D m_SwapChainExtent{};
 

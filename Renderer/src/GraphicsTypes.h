@@ -31,14 +31,20 @@ namespace dae
 		glm::mat4 transform{ 1.0f };
 	};
 
-	struct PushConstants
+	//todo, rename to ObjectData or ...
+	struct PushConstants //(mesh info) 
 	{
-		//todo, delete transform
+		//todo, rename transform
 		glm::mat4 transform{};        // 64 bytes
 		uint64_t vertexBufferAddress{}; // 8 bytes
-		uint32_t albedoTextureIndex;
-		uint32_t normalTextureIndex;
-		uint32_t metalicRoughnessTextureIndex;
+		uint32_t albedoTextureIndex{};
+		uint32_t normalTextureIndex{};
+		uint32_t metalicRoughnessTextureIndex{};
+	};
+
+	struct BlitPushConstants
+	{
+		float exposure{};
 	};
 
 	struct SceneData

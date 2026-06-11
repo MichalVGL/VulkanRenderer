@@ -59,7 +59,7 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	// vertex input, empty for vertex pulling
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 	vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-	
+
 	// input assembly
 	VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -115,7 +115,7 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	depthStencil.depthBoundsTestEnable = VK_FALSE;
 	depthStencil.stencilTestEnable = VK_FALSE;
 
-	// define flags
+	// define flags, only used for bindless textures with variable descriptor count
 	VkDescriptorBindingFlags bindingFlags =
 		VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
 		VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
@@ -128,20 +128,20 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	std::vector<VkDescriptorSetLayoutBinding> bindings{};
 	VkDescriptorSetLayoutCreateInfo layoutInfo{};
 
-	if (info.texturesDescriptorLayout == TexturesDescriptorLayoutType::BindlessTextures)
+	switch (info.texturesDescriptorLayout)
 	{
-		VkDescriptorSetLayoutBinding& binding = bindings.emplace_back();
-		binding.binding = 0;
-		binding.descriptorCount = 1000; // Max textures in the array
-		binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-		layoutInfo.pNext = &flagsInfo; // Enable variable descriptor count for bindless textures
-	} 
-	else if (info.texturesDescriptorLayout == TexturesDescriptorLayoutType::GBuffer)
-	{
-		bindings.reserve(3);
-
+	case TexturesDescriptorLayoutType::BindlessTextures:
+		{
+			VkDescriptorSetLayoutBinding& binding = bindings.emplace_back();
+			binding.binding = 0;
+			binding.descriptorCount = 1000; // Max textures in the array
+			binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+			layoutInfo.pNext = &flagsInfo; // Enable variable descriptor count for bindless textures
+		}
+		break;
+	case TexturesDescriptorLayoutType::GBuffer:
+		bindings.reserve(4);
 		for (int i = 0; i < 4; i++) // albedo, normal, material (mettalic/roughness), depth
 		{
 			VkDescriptorSetLayoutBinding& binding = bindings.emplace_back();
@@ -150,12 +150,21 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 			binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 			binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 		}
-
 		layoutInfo.pNext = nullptr; // No variable descriptor count needed for fixed GBuffer
-	}
-	else
-	{
+		break;
+	case TexturesDescriptorLayoutType::HDRImage:
+		{
+			VkDescriptorSetLayoutBinding& binding = bindings.emplace_back();
+			binding.binding = 0;
+			binding.descriptorCount = 1; //HDR image
+			binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+			layoutInfo.pNext = nullptr;
+		}
+		break;
+	default:
 		throw std::runtime_error("[Pipeline.cpp] unknown descriptor layout type!");
+		break;
 	}
 
 	// fill in descriptor set layout

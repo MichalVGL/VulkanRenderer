@@ -110,6 +110,15 @@ void dae::Renderer::Init(const Window* pWindow)
 	m_DeletionQueue.PushDeleter(m_DepthImage.GetDeletionFlush());
 
 	//==============================
+	// HDR Image
+
+	m_HDRImage.Init(m_Device, extent.width, extent.height,
+		VK_FORMAT_R32G32B32A32_SFLOAT,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT, 1);
+	m_DeletionQueue.PushDeleter(m_HDRImage.GetDeletionFlush());
+
+	//==============================
 	// Deferred Pipelines 
 	
 	// Depth PrePass Pipeline
@@ -149,10 +158,10 @@ void dae::Renderer::Init(const Window* pWindow)
 	PipelineInfo lightingPipelineInfo{};
 	lightingPipelineInfo.vertexShaderFilePath = "resources/shaders/Lighting.vert.spv";
 	lightingPipelineInfo.fragmentShaderFilePath = "resources/shaders/Lighting.frag.spv";
-	lightingPipelineInfo.colorAttachmentFormats = { m_Swapchain.GetImageFormat() };
+	lightingPipelineInfo.colorAttachmentFormats = { m_HDRImage.GetFormat() };
 	lightingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	lightingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
-	lightingPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
+	lightingPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat(); //todo,, maybe nullptr?
 	lightingPipelineInfo.depthTestEnable = VK_FALSE;
 	lightingPipelineInfo.depthWriteEnable = VK_FALSE;
 	lightingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::GBuffer;
@@ -160,6 +169,22 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	m_LightingPipeline.Init(m_Device, lightingPipelineInfo);
 	m_DeletionQueue.PushDeleter(m_LightingPipeline.GetDeletionFlush());
+
+	// Blitting Pipeline
+	PipelineInfo blittingPipelineInfo{};
+	blittingPipelineInfo.vertexShaderFilePath = "resources/shaders/Blit.vert.spv";
+	blittingPipelineInfo.fragmentShaderFilePath = "resources/shaders/Blit.frag.spv";
+	blittingPipelineInfo.colorAttachmentFormats = { m_Swapchain.GetImageFormat() };
+	blittingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	blittingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
+	blittingPipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+	blittingPipelineInfo.depthTestEnable = VK_FALSE;
+	blittingPipelineInfo.depthWriteEnable = VK_FALSE;
+	blittingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::HDRImage;
+	blittingPipelineInfo.additionalSetLayouts = {};
+
+	m_BlittingPipeline.Init(m_Device, blittingPipelineInfo);
+	m_DeletionQueue.PushDeleter(m_BlittingPipeline.GetDeletionFlush());
 
 	//Setup frames and command pool
 
@@ -180,8 +205,9 @@ void dae::Renderer::Init(const Window* pWindow)
 			vkDeviceWaitIdle(m_Device.GetLogicalDevice());
 		});
 
-	// GBuffer
+	// initialize descriptor sets for GBuffer and HDR image (used in lighting and blitting pass)
 	InitializeGBuffer();
+	InitializeHDRImage();
 
 	m_IsInitialized = true;
 }
@@ -208,7 +234,7 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 
 	VkCommandBuffer commandBuffer = currentFrame.BeginCommands();
 
-	ImageRef& image = m_Swapchain.GetImage(imageIndex);
+	ImageRef& swapImage = m_Swapchain.GetImage(imageIndex);
 
 	//==============================
 	// Depth PrePass
@@ -304,10 +330,11 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
 		VK_ACCESS_2_SHADER_READ_BIT);
 
-	// SwapImage
-	image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+	//HDR image (output)
+	m_HDRImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
 
 	// update light info for the current frame
 	const auto& directionalLights = scene.GetDirectionalLights();
@@ -326,7 +353,7 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 
 	currentFrame.UpdateLights(gpuLights);
 
-	VkRenderingAttachmentInfo swapAttachment = MakeColorAttachment(image.GetImageView());
+	VkRenderingAttachmentInfo hdrAttachment = MakeColorAttachment(m_HDRImage.GetImageView());
 
 	depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView(), false, false, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL); //dont clear depth and dont store it
 
@@ -335,8 +362,8 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	lightingRenderingInfo.renderArea = { {0, 0}, m_Swapchain.GetExtent() };
 	lightingRenderingInfo.layerCount = 1;
 	lightingRenderingInfo.colorAttachmentCount = 1;
-	lightingRenderingInfo.pColorAttachments = &swapAttachment;
-	lightingRenderingInfo.pDepthAttachment = &depthAttachment;
+	lightingRenderingInfo.pColorAttachments = &hdrAttachment;
+	lightingRenderingInfo.pDepthAttachment = &depthAttachment; //todo, maybe remove
 
 	vkCmdBeginRendering(commandBuffer, &lightingRenderingInfo);
 	SetViewportScissor(commandBuffer);
@@ -354,9 +381,42 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	vkCmdEndRendering(commandBuffer);
 
 	//==============================
+	// Blitting Pass
+
+	// HDR image (read)
+	m_HDRImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT);
+
+	// SwapImage (output)
+	swapImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+	//todo, add camera info (iso, ...) as ubo or push constants
+
+	VkRenderingAttachmentInfo swapImageAttachment = MakeColorAttachment(swapImage.GetImageView());
+
+	VkRenderingInfo blitRenderingInfo{};
+	blitRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	blitRenderingInfo.renderArea = { {0, 0}, m_Swapchain.GetExtent() };
+	blitRenderingInfo.layerCount = 1;
+	blitRenderingInfo.colorAttachmentCount = 1;
+	blitRenderingInfo.pColorAttachments = &swapImageAttachment;
+	blitRenderingInfo.pDepthAttachment = nullptr;
+
+	vkCmdBeginRendering(commandBuffer, &blitRenderingInfo);
+	SetViewportScissor(commandBuffer);
+	m_BlittingPipeline.Bind(commandBuffer);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		m_BlittingPipeline.GetPipelineLayout(), 0, 1, &m_HDRDescriptorSet, 0, nullptr);
+	vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+	vkCmdEndRendering(commandBuffer);
+
+	//==============================
 	// Transition to present
 
-	image.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+	swapImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 		VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
 		VK_ACCESS_2_NONE);
 
@@ -530,7 +590,7 @@ void dae::Renderer::InitializeGBuffer()
 	// fill in the descriptor sets
 
 	std::vector<VkDescriptorImageInfo> imageInfos{};
-	imageInfos.reserve(3);
+	imageInfos.reserve(4);
 
 	VkDescriptorImageInfo& albedoInfo = imageInfos.emplace_back(VkDescriptorImageInfo{});
 	albedoInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -587,6 +647,96 @@ void dae::Renderer::InitializeGBuffer()
 
 	vkUpdateDescriptorSets(m_Device.GetLogicalDevice(),
 		static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+}
+
+void dae::Renderer::InitializeHDRImage()
+{
+	//===================================
+	//HDR Sampler 
+
+	VkSamplerCreateInfo samplerInfo{};
+	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerInfo.magFilter = VK_FILTER_NEAREST;
+	samplerInfo.minFilter = VK_FILTER_NEAREST;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.anisotropyEnable = VK_FALSE;
+
+	if (vkCreateSampler(m_Device.GetLogicalDevice(), &samplerInfo, nullptr, &m_HDRSampler) != VK_SUCCESS)
+	{
+		throw std::runtime_error("[Renderer] failed to create HDR sampler!");
+	}
+	else
+	{
+		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+			{
+				vkDestroySampler(logicalDevice, m_HDRSampler, nullptr);
+				m_HDRSampler = VK_NULL_HANDLE;
+			});
+	}
+
+	//===================================
+	// Descriptor Pool
+
+	VkDescriptorPoolSize poolSize{};
+	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSize.descriptorCount = 1;
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = 1;
+
+	if (vkCreateDescriptorPool(m_Device.GetLogicalDevice(), &poolInfo, nullptr, &m_HDRDescriptorPool) != VK_SUCCESS)
+	{
+		throw std::runtime_error("[Renderer] failed to create HDR descriptor pool!");
+	}
+	else
+	{
+		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+			{
+				vkDestroyDescriptorPool(logicalDevice, m_HDRDescriptorPool, nullptr);
+				m_HDRDescriptorPool = VK_NULL_HANDLE;
+			});
+	}
+
+	//===================================
+	// Descriptor sets
+
+	// Allocate the descriptor set
+
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = m_HDRDescriptorPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &m_BlittingPipeline.GetDescriptorSetLayout();
+
+	if (vkAllocateDescriptorSets(m_Device.GetLogicalDevice(), &allocInfo, &m_HDRDescriptorSet) != VK_SUCCESS)
+	{
+		throw std::runtime_error("[Renderer] failed to allocate HDR descriptor set!");
+	}
+
+	// fill in the descriptor sets
+
+	VkDescriptorImageInfo imageInfo;
+
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	imageInfo.imageView = m_HDRImage.GetImageView();
+	imageInfo.sampler = m_HDRSampler;
+
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = m_HDRDescriptorSet;
+	write.dstBinding = 0;
+	write.dstArrayElement = 0;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	write.descriptorCount = 1;
+	write.pImageInfo = &imageInfo;
+
+	vkUpdateDescriptorSets(m_Device.GetLogicalDevice(),
+		1, &write, 0, nullptr);
 }
 
 void dae::Renderer::DeleteResources()

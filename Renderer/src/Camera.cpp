@@ -112,6 +112,16 @@ void dae::Camera::SetYaw(float yaw)
 	CalculateCameraToWorld();
 }
 
+float dae::Camera::GetExposure() const
+{
+	//calculate EV100
+	float ev100 = log2((m_Aperture * m_Aperture) / m_ShutterSpeed * 100.f / m_ISO);
+
+	//convert EV100 to exposure value
+	const float maxLuminance = 1.2f * powf(2.f, ev100);
+	return 1.f / std::max(maxLuminance, 0.0001f); // Avoid division by zero
+}
+
 glm::mat4x4 dae::Camera::GetCameraToWorld() const
 {
 	return glm::inverse(m_ONB);

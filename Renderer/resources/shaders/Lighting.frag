@@ -57,8 +57,8 @@ vec3 DecodeNormal(vec2 e)
 vec3 ReconstructWorldPos(in float depth)
 {
     
-    vec4 clipPos = vec4(fragUV * 2.0f - 1.0f, depth * 2.0 - 1.0, 1.0f);
-    //vec4 clipPos = vec4(fragUV * 2.0f - 1.0f, depth, 1.0f);
+    //vec4 clipPos = vec4(fragUV * 2.0f - 1.0f, depth * 2.0 - 1.0, 1.0f);
+    vec4 clipPos = vec4(fragUV * 2.0f - 1.0f, depth, 1.0f);
     //inverse projection to viewspace
     vec4 viewPos = inverse(sceneData.proj) * clipPos;
     viewPos /= viewPos.w;
@@ -74,11 +74,11 @@ vec3 ReconstructWorldPos(in float depth)
 //==================
 
 const float PI = 3.14159265359;
-const float AO = 5.0; // constant ambient occlusion
+const float AO = 1.0; // constant ambient occlusion
 
 // Hardcoded light data for testing
-const vec3 direction = -vec3(0.577f, -0.577f, -0.577f);
-const float lightIntensity = 1.f;
+//const vec3 direction = -vec3(0.577f, -0.577f, -0.577f);
+//const float lightIntensity = 1.f;
 
 //==================
 // Lighting functions (declarations)
@@ -137,34 +137,37 @@ void main()
     vec3 N = DecodeNormal(normalSample.rg);
     vec3 worldPos = ReconstructWorldPos(depth);
     vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
-
+    
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
     vec3 Lo = vec3(0.0);
 
     for(int i = 0; i < sceneData.lightCount; ++i) //todo: loop over actual lights
     {
-        //vec3 L = normalize(lightPositions[i] - WorldPos);
-        vec3 L = normalize(direction);
+        float illuminance;
+        vec3 L;
+
+        if (lightBuffer.lights[i].posDir.w < 0.0) // directional light
+        {
+            illuminance = lightBuffer.lights[i].color.a;
+            L = normalize(-lightBuffer.lights[i].posDir.xyz);
+        } else //point light
+        {
+            const float lumen = lightBuffer.lights[i].color.a;
+            const float luminousIntensity = lumen / (4.0 * PI);
+
+            L = lightBuffer.lights[i].posDir.xyz - worldPos;
+            const float dist = length(L);
+            L = normalize(L);
+            
+            const float attenuation = 1.0 / max(dist * dist, 0.000001);
+            illuminance = luminousIntensity * attenuation;
+        }
+
+        const vec3 irradiance = lightBuffer.lights[i].color.rgb * illuminance;
+
         vec3 H = normalize(V + L);
 
-        
-
-        //DIRECTIONAL LIGHT
-        //const float illuminance = light.lux;
-        //const float irradiance = light.color * illuminance;
-
-        //POINT LIGHT
-        //const float lumen = light.lumen;
-        //const float luminousIntensity = lumen / (4.0 * PI);
-
-        //const float distance    = length(lightPositions[i] - WorldPos);
-        //const float attenuation = 1.0 / max(distance * distance, 0.0001);
-        //const float illuminance = luminousIntensity * attenuation;
-        //const float irradiance = lightColor * illuminance;
-
-        //todo, convert to radiance via lambertian diffuse
-
-        vec3 radiance = vec3(lightIntensity);
+        vec3 radiance = irradiance / PI;// / PI; //todo determine correct approach
 
         float NDF = DistributionGGX(N, H, roughness);        
         float G = GeometrySmith(N, V, L, roughness);      
@@ -182,11 +185,11 @@ void main()
         Lo += (kD * albedo / PI + specular) * radiance * NdotL;
     }
 
-    vec3 ambient = vec3(0.03) * albedo * AO;
-    vec3 color = ambient + Lo;
+    vec3 ambient = vec3(0.01) * albedo * AO;
+    vec3 color = Lo;// ambient + Lo;
 
-    color = color / (color + vec3(1.0));
-    color = pow(color, vec3(1.0 / 2.2));
+    //color = color / (color + vec3(1.0));
+    //color = pow(color, vec3(1.0 / 2.2)); gamma correction
 
     outColor = vec4(color, 1.0);
     //*/

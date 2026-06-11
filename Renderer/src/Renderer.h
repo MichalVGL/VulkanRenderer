@@ -40,6 +40,7 @@ namespace dae
 		void DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& currentFrame);
 		void CreateCommandPool();
 		void InitializeGBuffer();
+		void InitializeHDRImage();
 		void DeleteResources();
 
 		VkRenderingAttachmentInfo MakeColorAttachment(VkImageView view);
@@ -55,6 +56,7 @@ namespace dae
 		Pipeline m_DepthPrePassPipeline{};
 		Pipeline m_GBufferPipeline{};
 		Pipeline m_LightingPipeline{};
+		Pipeline m_BlittingPipeline{};
 
 		VkCommandPool m_CommandPool{};
 
@@ -76,8 +78,14 @@ namespace dae
 		VkDescriptorPool m_GBufferDescriptorPool{ VK_NULL_HANDLE };
 		VkDescriptorSet m_GBufferDescriptorSet{ VK_NULL_HANDLE };
 
+		//HDR Image
+		Image m_HDRImage{};
+		VkSampler m_HDRSampler{ VK_NULL_HANDLE };
+		VkDescriptorPool m_HDRDescriptorPool{ VK_NULL_HANDLE };
+		VkDescriptorSet m_HDRDescriptorSet{ VK_NULL_HANDLE };
+
 		// Depth image
-		dae::Image m_DepthImage{};
+		Image m_DepthImage{};
 
 		DeletionQueue m_DeletionQueue{};
 	};
