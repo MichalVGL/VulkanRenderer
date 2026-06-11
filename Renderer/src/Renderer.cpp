@@ -119,6 +119,19 @@ void dae::Renderer::Init(const Window* pWindow)
 	m_DeletionQueue.PushDeleter(m_HDRImage.GetDeletionFlush());
 
 	//==============================
+	// Push constant ranges
+
+	VkPushConstantRange meshPushConstantsRange{};
+	meshPushConstantsRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	meshPushConstantsRange.offset = 0;
+	meshPushConstantsRange.size = sizeof(PushConstants);
+
+	VkPushConstantRange blitPushConstantsRange{};
+	blitPushConstantsRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	blitPushConstantsRange.offset = 0;
+	blitPushConstantsRange.size = sizeof(BlitPushConstants);
+
+	//==============================
 	// Deferred Pipelines 
 	
 	// Depth PrePass Pipeline
@@ -131,6 +144,7 @@ void dae::Renderer::Init(const Window* pWindow)
 	depthPrePassPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
 	depthPrePassPipelineInfo.depthTestEnable = VK_TRUE;
 	depthPrePassPipelineInfo.depthWriteEnable = VK_TRUE;
+	depthPrePassPipelineInfo.pushConstantRange = meshPushConstantsRange;
 	depthPrePassPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures; //still needed to check alpha
 	depthPrePassPipelineInfo.additionalSetLayouts = { m_SceneDataLayout };
 
@@ -148,6 +162,7 @@ void dae::Renderer::Init(const Window* pWindow)
 	gBufferPipelineInfo.depthTestEnable = VK_TRUE;
 	gBufferPipelineInfo.depthWriteEnable = VK_FALSE;
 	gBufferPipelineInfo.depthCompareOp = VK_COMPARE_OP_EQUAL;
+	gBufferPipelineInfo.pushConstantRange = meshPushConstantsRange;
 	gBufferPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures;
 	gBufferPipelineInfo.additionalSetLayouts = { m_SceneDataLayout };
 
@@ -180,6 +195,7 @@ void dae::Renderer::Init(const Window* pWindow)
 	blittingPipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
 	blittingPipelineInfo.depthTestEnable = VK_FALSE;
 	blittingPipelineInfo.depthWriteEnable = VK_FALSE;
+	blittingPipelineInfo.pushConstantRange = blitPushConstantsRange;
 	blittingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::HDRImage;
 	blittingPipelineInfo.additionalSetLayouts = {};
 
@@ -262,7 +278,7 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 
 	m_DepthPrePassPipeline.Bind(commandBuffer);
 
-	DrawScene(commandBuffer, scene, currentFrame);
+	DrawScene(commandBuffer, scene, currentFrame, m_DepthPrePassPipeline);
 	vkCmdEndRendering(commandBuffer);
 
 	//==============================
@@ -307,8 +323,8 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 
 	m_GBufferPipeline.Bind(commandBuffer);
 
-	//draw scene to gbuffer (GBuffer pipeline is bound inside this function)
-	DrawScene(commandBuffer, scene, currentFrame);
+	//draw scene to gbuffer
+	DrawScene(commandBuffer, scene, currentFrame, m_GBufferPipeline);
 	vkCmdEndRendering(commandBuffer);
 
 	//==============================
@@ -393,7 +409,9 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
-	//todo, add camera info (iso, ...) as ubo or push constants
+	//push constants info
+	BlitPushConstants blitPushConstants{};
+	blitPushConstants.exposure = scene.GetCamera().GetExposure();
 
 	VkRenderingAttachmentInfo swapImageAttachment = MakeColorAttachment(swapImage.GetImageView());
 
@@ -410,6 +428,9 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	m_BlittingPipeline.Bind(commandBuffer);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		m_BlittingPipeline.GetPipelineLayout(), 0, 1, &m_HDRDescriptorSet, 0, nullptr);
+	vkCmdPushConstants(commandBuffer, m_BlittingPipeline.GetPipelineLayout(),
+		VK_SHADER_STAGE_FRAGMENT_BIT,
+		0, sizeof(BlitPushConstants), &blitPushConstants);
 	vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 	vkCmdEndRendering(commandBuffer);
 
@@ -434,7 +455,7 @@ std::function<void()> dae::Renderer::GetDeletionFlush()
 	);
 }
 
-void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& currentFrame)
+void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& currentFrame, const Pipeline& pipeline)
 {
 	//todo, move the scenedata building to the drawframe, now it calculates it multiple times due to deferred
 	// build scene data
@@ -483,7 +504,7 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& cu
 		push.normalTextureIndex = renderObject.pMaterial->normalTextureIndex;
 		push.metalicRoughnessTextureIndex = renderObject.pMaterial->metalicRoughnessTextureIndex;
 
-		vkCmdPushConstants(cmd, m_GBufferPipeline.GetPipelineLayout(),
+		vkCmdPushConstants(cmd, pipeline.GetPipelineLayout(),
 			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 			0, sizeof(PushConstants), &push);
 

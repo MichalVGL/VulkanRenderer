@@ -5,6 +5,10 @@
 
 layout(location = 0) in vec2 fragUV;
 
+layout(push_constant) uniform PushConstants {
+    float exposure;
+} push;
+
 layout(set = 0, binding = 0) uniform sampler2D gHDR;
 
 layout(location = 0) out vec4 outColor;
@@ -19,7 +23,7 @@ void main()
 
     // Choose one:
     //color = ReinhardToneMapping(color);
-    color = ACESFilmToneMapping(color);
+    color = ACESFilmToneMapping(color * push.exposure);
     //color = Uncharted2ToneMapping(color);
 
     outColor = vec4(color, 1.0);

@@ -167,7 +167,7 @@ void main()
 
         vec3 H = normalize(V + L);
 
-        vec3 radiance = irradiance / PI;// / PI; //todo determine correct approach
+        vec3 radiance = irradiance;// / PI; //todo determine correct approach
 
         float NDF = DistributionGGX(N, H, roughness);        
         float G = GeometrySmith(N, V, L, roughness);      

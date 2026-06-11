@@ -37,7 +37,7 @@ namespace dae
 
 	private:
 
-		void DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& currentFrame);
+		void DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& currentFrame, const Pipeline& pipeline);
 		void CreateCommandPool();
 		void InitializeGBuffer();
 		void InitializeHDRImage();
