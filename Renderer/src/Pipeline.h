@@ -13,7 +13,7 @@ namespace dae
 	{
 		BindlessTextures,	// larget texture array
 		GBuffer,				// fixed GBuffer
-		HDRImage			//blitting pass
+		SingleImage			//blitting pass (hdr image) and cube map conversion (hdri image)
 	};
 
 	struct PipelineInfo

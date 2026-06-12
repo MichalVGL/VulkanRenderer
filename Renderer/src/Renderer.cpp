@@ -2,6 +2,7 @@
 
 #include "VulkanSetup.h"
 #include "Scene.h"
+#include "CubeMap.h"
 
 void dae::Renderer::Init(const Window* pWindow)
 {
@@ -34,176 +35,13 @@ void dae::Renderer::Init(const Window* pWindow)
 	m_Swapchain.Init(m_Device, *m_pWindow, m_MaxFramesInFlight); //might change max frames in flight
 	m_DeletionQueue.PushDeleter(m_Swapchain.GetDeletionFlush());
 
-	// Create scene data layout that every frame uses
-	VkDescriptorSetLayoutBinding sceneDataBinding{};
-	sceneDataBinding.binding = 0;
-	sceneDataBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	sceneDataBinding.descriptorCount = 1;
-	sceneDataBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	CreateLayoutBindings();
 
-	VkDescriptorSetLayoutCreateInfo sceneDataLayoutInfo{};
-	sceneDataLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	sceneDataLayoutInfo.bindingCount = 1;
-	sceneDataLayoutInfo.pBindings = &sceneDataBinding;
+	InitializeImages();
 
-	// lights from every frame
-	VkDescriptorSetLayoutBinding lightBinding{};
-	lightBinding.binding = 0;
-	lightBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	lightBinding.descriptorCount = 1;
-	lightBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-	VkDescriptorSetLayoutCreateInfo lightLayoutInfo{};
-	lightLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	lightLayoutInfo.bindingCount = 1;
-	lightLayoutInfo.pBindings = &lightBinding;
-
-	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
-		&lightLayoutInfo, nullptr, &m_LightLayout);
-
-	m_DeletionQueue.PushDeleter([this]()
-		{
-			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(),
-				m_LightLayout, nullptr);
-			m_LightLayout = VK_NULL_HANDLE;
-		});
-
-	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
-		&sceneDataLayoutInfo, nullptr, &m_SceneDataLayout);
-
-	m_DeletionQueue.PushDeleter([this]()
-		{
-			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(), m_SceneDataLayout, nullptr);
-			m_SceneDataLayout = VK_NULL_HANDLE;
-		});
-
-	//==============================
-	// Images for deferred rendering 
-
-	VkExtent2D extent = m_Swapchain.GetExtent();
-	// Albedo image
-	m_AlbedoImage.Init(m_Device, extent.width, extent.height,
-		VK_FORMAT_R8G8B8A8_UNORM,
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_AlbedoImage.GetDeletionFlush());
-
-	// Normal image
-	m_NormalImage.Init(m_Device, extent.width, extent.height,
-		VK_FORMAT_R16G16_UNORM,
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_NormalImage.GetDeletionFlush());
-
-	// Material image (roughness, metallic, ao)
-	m_MaterialImage.Init(m_Device, extent.width, extent.height,
-		VK_FORMAT_R8G8B8A8_UNORM,
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_MaterialImage.GetDeletionFlush());
-
-	// Depth image
-	m_DepthImage.Init(m_Device, extent.width, extent.height,
-		VK_FORMAT_D32_SFLOAT,
-		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_DepthImage.GetDeletionFlush());
-
-	//==============================
-	// HDR Image
-
-	m_HDRImage.Init(m_Device, extent.width, extent.height,
-		VK_FORMAT_R32G32B32A32_SFLOAT,
-		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-		VK_IMAGE_ASPECT_COLOR_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_HDRImage.GetDeletionFlush());
-
-	//==============================
-	// Push constant ranges
-
-	VkPushConstantRange meshPushConstantsRange{};
-	meshPushConstantsRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	meshPushConstantsRange.offset = 0;
-	meshPushConstantsRange.size = sizeof(PushConstants);
-
-	VkPushConstantRange blitPushConstantsRange{};
-	blitPushConstantsRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-	blitPushConstantsRange.offset = 0;
-	blitPushConstantsRange.size = sizeof(BlitPushConstants);
-
-	//==============================
-	// Deferred Pipelines 
-	
-	// Depth PrePass Pipeline
-	PipelineInfo depthPrePassPipelineInfo{};
-	depthPrePassPipelineInfo.vertexShaderFilePath = "resources/shaders/DepthPrePass.vert.spv";
-	depthPrePassPipelineInfo.fragmentShaderFilePath = "resources/shaders/DepthPrePass.frag.spv";
-	depthPrePassPipelineInfo.colorAttachmentFormats = {};
-	depthPrePassPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	depthPrePassPipelineInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-	depthPrePassPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
-	depthPrePassPipelineInfo.depthTestEnable = VK_TRUE;
-	depthPrePassPipelineInfo.depthWriteEnable = VK_TRUE;
-	depthPrePassPipelineInfo.pushConstantRange = meshPushConstantsRange;
-	depthPrePassPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures; //still needed to check alpha
-	depthPrePassPipelineInfo.additionalSetLayouts = { m_SceneDataLayout };
-
-	m_DepthPrePassPipeline.Init(m_Device, depthPrePassPipelineInfo);
-	m_DeletionQueue.PushDeleter(m_DepthPrePassPipeline.GetDeletionFlush());
-	
-	// GBuffer Pipeline
-	PipelineInfo gBufferPipelineInfo{};
-	gBufferPipelineInfo.vertexShaderFilePath = "resources/shaders/GBuffer.vert.spv";
-	gBufferPipelineInfo.fragmentShaderFilePath = "resources/shaders/GBuffer.frag.spv";
-	gBufferPipelineInfo.colorAttachmentFormats = { m_AlbedoImage.GetFormat(), m_NormalImage.GetFormat(), m_MaterialImage.GetFormat() };
-	gBufferPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	gBufferPipelineInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-	gBufferPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
-	gBufferPipelineInfo.depthTestEnable = VK_TRUE;
-	gBufferPipelineInfo.depthWriteEnable = VK_FALSE;
-	gBufferPipelineInfo.depthCompareOp = VK_COMPARE_OP_EQUAL;
-	gBufferPipelineInfo.pushConstantRange = meshPushConstantsRange;
-	gBufferPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures;
-	gBufferPipelineInfo.additionalSetLayouts = { m_SceneDataLayout };
-
-	m_GBufferPipeline.Init(m_Device, gBufferPipelineInfo);
-	m_DeletionQueue.PushDeleter(m_GBufferPipeline.GetDeletionFlush());
-
-	// Lighting Pipeline
-	PipelineInfo lightingPipelineInfo{};
-	lightingPipelineInfo.vertexShaderFilePath = "resources/shaders/Lighting.vert.spv";
-	lightingPipelineInfo.fragmentShaderFilePath = "resources/shaders/Lighting.frag.spv";
-	lightingPipelineInfo.colorAttachmentFormats = { m_HDRImage.GetFormat() };
-	lightingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	lightingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
-	lightingPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat(); //todo,, maybe nullptr?
-	lightingPipelineInfo.depthTestEnable = VK_FALSE;
-	lightingPipelineInfo.depthWriteEnable = VK_FALSE;
-	lightingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::GBuffer;
-	lightingPipelineInfo.additionalSetLayouts = { m_SceneDataLayout, m_LightLayout };
-
-	m_LightingPipeline.Init(m_Device, lightingPipelineInfo);
-	m_DeletionQueue.PushDeleter(m_LightingPipeline.GetDeletionFlush());
-
-	// Blitting Pipeline
-	PipelineInfo blittingPipelineInfo{};
-	blittingPipelineInfo.vertexShaderFilePath = "resources/shaders/Blit.vert.spv";
-	blittingPipelineInfo.fragmentShaderFilePath = "resources/shaders/Blit.frag.spv";
-	blittingPipelineInfo.colorAttachmentFormats = { m_Swapchain.GetImageFormat() };
-	blittingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	blittingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
-	blittingPipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
-	blittingPipelineInfo.depthTestEnable = VK_FALSE;
-	blittingPipelineInfo.depthWriteEnable = VK_FALSE;
-	blittingPipelineInfo.pushConstantRange = blitPushConstantsRange;
-	blittingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::HDRImage;
-	blittingPipelineInfo.additionalSetLayouts = {};
-
-	m_BlittingPipeline.Init(m_Device, blittingPipelineInfo);
-	m_DeletionQueue.PushDeleter(m_BlittingPipeline.GetDeletionFlush());
+	InitializePipelines();
 
 	//Setup frames and command pool
-
 	CreateCommandPool();
 	m_Frames.resize(m_MaxFramesInFlight);
 
@@ -216,14 +54,17 @@ void dae::Renderer::Init(const Window* pWindow)
 		m_DeletionQueue.PushDeleter(frame->GetDeletionFlush());
 	}
 
+	// initialize descriptor sets for GBuffer and HDR image (used in lighting and blitting pass)
+	InitializeGBufferDescriptors();
+	InitializeHDRImage();
+	//initialize the skybox
+	InitializeSkyBox();
+
+
 	m_DeletionQueue.PushDeleter([this]()
 		{
 			vkDeviceWaitIdle(m_Device.GetLogicalDevice());
 		});
-
-	// initialize descriptor sets for GBuffer and HDR image (used in lighting and blitting pass)
-	InitializeGBuffer();
-	InitializeHDRImage();
 
 	m_IsInitialized = true;
 }
@@ -385,14 +226,19 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	SetViewportScissor(commandBuffer);
 	m_LightingPipeline.Bind(commandBuffer);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_LightingPipeline.GetPipelineLayout(), 0, 1, &m_GBufferDescriptorSet, 0, nullptr);
+		m_LightingPipeline.GetPipelineLayout(), 
+		0, 1, &m_GBufferDescriptorSet, 0, nullptr);
 	VkDescriptorSet sceneDataSet = currentFrame.GetSceneDataDescriptorSet();
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_LightingPipeline.GetPipelineLayout(), 1, 1, &sceneDataSet, 0, nullptr);
+		m_LightingPipeline.GetPipelineLayout(), 
+		1, 1, &sceneDataSet, 0, nullptr);
 	VkDescriptorSet lightSet = currentFrame.GetLightDescriptorSet();
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		m_LightingPipeline.GetPipelineLayout(),
 		2, 1, &lightSet, 0, nullptr);
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		m_LightingPipeline.GetPipelineLayout(),
+		3, 1, &m_SkyBoxDescriptorSet, 0, nullptr);
 	vkCmdDraw(commandBuffer, 3, 1, 0, 0); // fullscreen triangle, hardcoded in shader
 	vkCmdEndRendering(commandBuffer);
 
@@ -520,6 +366,210 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& cu
 	}
 }
 
+void dae::Renderer::CreateLayoutBindings()
+{
+	// define both scene data and lights
+
+	// Create scene data layout that every frame uses
+	VkDescriptorSetLayoutBinding sceneDataBinding{};
+	sceneDataBinding.binding = 0;
+	sceneDataBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+	sceneDataBinding.descriptorCount = 1;
+	sceneDataBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutCreateInfo sceneDataLayoutInfo{};
+	sceneDataLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	sceneDataLayoutInfo.bindingCount = 1;
+	sceneDataLayoutInfo.pBindings = &sceneDataBinding;
+
+	// lights from every frame
+	VkDescriptorSetLayoutBinding lightBinding{};
+	lightBinding.binding = 0;
+	lightBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	lightBinding.descriptorCount = 1;
+	lightBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutCreateInfo lightLayoutInfo{};
+	lightLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	lightLayoutInfo.bindingCount = 1;
+	lightLayoutInfo.pBindings = &lightBinding;
+
+	// create both descriptor sets
+
+	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
+		&lightLayoutInfo, nullptr, &m_LightLayout);
+
+	m_DeletionQueue.PushDeleter([this]()
+		{
+			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(),
+				m_LightLayout, nullptr);
+			m_LightLayout = VK_NULL_HANDLE;
+		});
+
+	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
+		&sceneDataLayoutInfo, nullptr, &m_SceneDataLayout);
+
+	m_DeletionQueue.PushDeleter([this]()
+		{
+			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(), m_SceneDataLayout, nullptr);
+			m_SceneDataLayout = VK_NULL_HANDLE;
+		});
+
+	// cubemap
+
+	VkDescriptorSetLayoutBinding cubemapBinding{};
+	cubemapBinding.binding = 0;
+	cubemapBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	cubemapBinding.descriptorCount = 1;
+	cubemapBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+	VkDescriptorSetLayoutCreateInfo cubemapLayoutInfo{};
+	cubemapLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	cubemapLayoutInfo.bindingCount = 1;
+	cubemapLayoutInfo.pBindings = &cubemapBinding;
+
+	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
+		&cubemapLayoutInfo, nullptr, &m_SkyboxLayout);
+
+	m_DeletionQueue.PushDeleter([this]()
+		{
+			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(),
+				m_SkyboxLayout, nullptr);
+			m_SkyboxLayout = VK_NULL_HANDLE;
+		});
+}
+
+void dae::Renderer::InitializeImages()
+{
+	//==============================
+	// Images for deferred rendering 
+
+	VkExtent2D extent = m_Swapchain.GetExtent();
+	// Albedo image
+	m_AlbedoImage.Init(m_Device, extent.width, extent.height,
+		VK_FORMAT_R8G8B8A8_UNORM,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT, 1);
+	m_DeletionQueue.PushDeleter(m_AlbedoImage.GetDeletionFlush());
+
+	// Normal image
+	m_NormalImage.Init(m_Device, extent.width, extent.height,
+		VK_FORMAT_R16G16_UNORM,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT, 1);
+	m_DeletionQueue.PushDeleter(m_NormalImage.GetDeletionFlush());
+
+	// Material image (roughness, metallic, ao)
+	m_MaterialImage.Init(m_Device, extent.width, extent.height,
+		VK_FORMAT_R8G8B8A8_UNORM,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT, 1);
+	m_DeletionQueue.PushDeleter(m_MaterialImage.GetDeletionFlush());
+
+	// Depth image
+	m_DepthImage.Init(m_Device, extent.width, extent.height,
+		VK_FORMAT_D32_SFLOAT,
+		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+	m_DeletionQueue.PushDeleter(m_DepthImage.GetDeletionFlush());
+
+	//==============================
+	// HDR Image
+
+	m_HDRImage.Init(m_Device, extent.width, extent.height,
+		VK_FORMAT_R32G32B32A32_SFLOAT,
+		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		VK_IMAGE_ASPECT_COLOR_BIT, 1);
+	m_DeletionQueue.PushDeleter(m_HDRImage.GetDeletionFlush());
+}
+
+void dae::Renderer::InitializePipelines()
+{
+	//==============================
+	// Push constant ranges
+
+	VkPushConstantRange meshPushConstantsRange{};
+	meshPushConstantsRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+	meshPushConstantsRange.offset = 0;
+	meshPushConstantsRange.size = sizeof(PushConstants);
+
+	VkPushConstantRange blitPushConstantsRange{};
+	blitPushConstantsRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	blitPushConstantsRange.offset = 0;
+	blitPushConstantsRange.size = sizeof(BlitPushConstants);
+
+	//==============================
+	// Deferred Pipelines 
+
+	// Depth PrePass Pipeline
+	PipelineInfo depthPrePassPipelineInfo{};
+	depthPrePassPipelineInfo.vertexShaderFilePath = "resources/shaders/DepthPrePass.vert.spv";
+	depthPrePassPipelineInfo.fragmentShaderFilePath = "resources/shaders/DepthPrePass.frag.spv";
+	depthPrePassPipelineInfo.colorAttachmentFormats = {};
+	depthPrePassPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	depthPrePassPipelineInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	depthPrePassPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
+	depthPrePassPipelineInfo.depthTestEnable = VK_TRUE;
+	depthPrePassPipelineInfo.depthWriteEnable = VK_TRUE;
+	depthPrePassPipelineInfo.pushConstantRange = meshPushConstantsRange;
+	depthPrePassPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures; //still needed to check alpha
+	depthPrePassPipelineInfo.additionalSetLayouts = { m_SceneDataLayout };
+
+	m_DepthPrePassPipeline.Init(m_Device, depthPrePassPipelineInfo);
+	m_DeletionQueue.PushDeleter(m_DepthPrePassPipeline.GetDeletionFlush());
+
+	// GBuffer Pipeline
+	PipelineInfo gBufferPipelineInfo{};
+	gBufferPipelineInfo.vertexShaderFilePath = "resources/shaders/GBuffer.vert.spv";
+	gBufferPipelineInfo.fragmentShaderFilePath = "resources/shaders/GBuffer.frag.spv";
+	gBufferPipelineInfo.colorAttachmentFormats = { m_AlbedoImage.GetFormat(), m_NormalImage.GetFormat(), m_MaterialImage.GetFormat() };
+	gBufferPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	gBufferPipelineInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+	gBufferPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat();
+	gBufferPipelineInfo.depthTestEnable = VK_TRUE;
+	gBufferPipelineInfo.depthWriteEnable = VK_FALSE;
+	gBufferPipelineInfo.depthCompareOp = VK_COMPARE_OP_EQUAL;
+	gBufferPipelineInfo.pushConstantRange = meshPushConstantsRange;
+	gBufferPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::BindlessTextures;
+	gBufferPipelineInfo.additionalSetLayouts = { m_SceneDataLayout };
+
+	m_GBufferPipeline.Init(m_Device, gBufferPipelineInfo);
+	m_DeletionQueue.PushDeleter(m_GBufferPipeline.GetDeletionFlush());
+
+	// Lighting Pipeline
+	PipelineInfo lightingPipelineInfo{};
+	lightingPipelineInfo.vertexShaderFilePath = "resources/shaders/Lighting.vert.spv";
+	lightingPipelineInfo.fragmentShaderFilePath = "resources/shaders/Lighting.frag.spv";
+	lightingPipelineInfo.colorAttachmentFormats = { m_HDRImage.GetFormat() };
+	lightingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	lightingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
+	lightingPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat(); //todo,, maybe nullptr?
+	lightingPipelineInfo.depthTestEnable = VK_FALSE;
+	lightingPipelineInfo.depthWriteEnable = VK_FALSE;
+	lightingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::GBuffer;
+	lightingPipelineInfo.additionalSetLayouts = { m_SceneDataLayout, m_LightLayout, m_SkyboxLayout };
+
+	m_LightingPipeline.Init(m_Device, lightingPipelineInfo);
+	m_DeletionQueue.PushDeleter(m_LightingPipeline.GetDeletionFlush());
+
+	// Blitting Pipeline
+	PipelineInfo blittingPipelineInfo{};
+	blittingPipelineInfo.vertexShaderFilePath = "resources/shaders/Blit.vert.spv";
+	blittingPipelineInfo.fragmentShaderFilePath = "resources/shaders/Blit.frag.spv";
+	blittingPipelineInfo.colorAttachmentFormats = { m_Swapchain.GetImageFormat() };
+	blittingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	blittingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
+	blittingPipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+	blittingPipelineInfo.depthTestEnable = VK_FALSE;
+	blittingPipelineInfo.depthWriteEnable = VK_FALSE;
+	blittingPipelineInfo.pushConstantRange = blitPushConstantsRange;
+	blittingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::SingleImage;
+	blittingPipelineInfo.additionalSetLayouts = {};
+
+	m_BlittingPipeline.Init(m_Device, blittingPipelineInfo);
+	m_DeletionQueue.PushDeleter(m_BlittingPipeline.GetDeletionFlush());
+}
+
 void dae::Renderer::CreateCommandPool()
 {
 	VkCommandPoolCreateInfo poolInfo{};
@@ -540,7 +590,7 @@ void dae::Renderer::CreateCommandPool()
 	}
 }
 
-void dae::Renderer::InitializeGBuffer()
+void dae::Renderer::InitializeGBufferDescriptors()
 {
 	//===================================
 	//Shared GBuffer Sampler 
@@ -758,6 +808,61 @@ void dae::Renderer::InitializeHDRImage()
 
 	vkUpdateDescriptorSets(m_Device.GetLogicalDevice(),
 		1, &write, 0, nullptr);
+}
+
+void dae::Renderer::InitializeSkyBox()
+{
+	m_SkyBox.InitFromFile(m_Device, m_CommandPool, "Resources/hdri/circus_arena_4k.hdr");
+	m_DeletionQueue.PushDeleter(m_SkyBox.GetDeletionFlush());
+
+	VkDescriptorPoolSize poolSize{};
+	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSize.descriptorCount = 1;
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = 1;
+
+	if (vkCreateDescriptorPool(m_Device.GetLogicalDevice(), &poolInfo, nullptr, &m_SkyBoxDescriptorPool) != VK_SUCCESS)
+	{
+		throw std::runtime_error("[Renderer] failed to create SkyBox descriptor pool!");
+	}
+	else
+	{
+		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+			{
+				vkDestroyDescriptorPool(logicalDevice, m_SkyBoxDescriptorPool, nullptr);
+				m_SkyBoxDescriptorPool = VK_NULL_HANDLE;
+			});
+	}
+
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.descriptorPool = m_SkyBoxDescriptorPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &m_SkyboxLayout;
+
+	if (vkAllocateDescriptorSets(m_Device.GetLogicalDevice(), &allocInfo, &m_SkyBoxDescriptorSet) != VK_SUCCESS)
+	{
+		throw std::runtime_error("[Renderer] failed to allocate SkyBox descriptor set!");
+	}
+
+	VkDescriptorImageInfo imageInfo{};
+	imageInfo.sampler = m_SkyBox.GetSampler();
+	imageInfo.imageView = m_SkyBox.GetImageView();
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = m_SkyBoxDescriptorSet;
+	write.dstBinding = 0;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	write.descriptorCount = 1;
+	write.pImageInfo = &imageInfo;
+
+	vkUpdateDescriptorSets(m_Device.GetLogicalDevice(), 1, &write, 0, nullptr);
 }
 
 void dae::Renderer::DeleteResources()

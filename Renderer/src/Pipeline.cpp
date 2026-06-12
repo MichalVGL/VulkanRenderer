@@ -152,7 +152,7 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 		}
 		layoutInfo.pNext = nullptr; // No variable descriptor count needed for fixed GBuffer
 		break;
-	case TexturesDescriptorLayoutType::HDRImage:
+	case TexturesDescriptorLayoutType::SingleImage:
 		{
 			VkDescriptorSetLayoutBinding& binding = bindings.emplace_back();
 			binding.binding = 0;

@@ -161,6 +161,7 @@ void dae::Texture::LoadPixels(const Device& device, VkCommandPool commandPool, v
 
 	// cleanup
 	vkFreeCommandBuffers(device.GetLogicalDevice(), commandPool, 1, &commandBuffer);
+	std::invoke(stagingBuffer.GetDeletionFlush());
 }
 
 std::function<void()> dae::Texture::GetDeletionFlush()

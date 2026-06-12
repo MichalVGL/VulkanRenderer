@@ -1,0 +1,63 @@
+#ifndef CUBEMAP_H
+#define CUBEMAP_H
+
+#include "pch.h"
+
+#include "DeletionQueue.h"
+
+namespace dae
+{
+	class Device;
+	class Image;
+
+	class CubeMap final
+	{
+	public:
+		CubeMap() = default;
+		~CubeMap() = default;
+
+		CubeMap(const CubeMap&) = delete;
+		CubeMap(CubeMap&&) = delete;
+		CubeMap& operator=(const CubeMap&) = delete;
+		CubeMap& operator=(CubeMap&&) = delete;
+
+		void InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, uint32_t resolution = 1024
+			, VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT, VkImageAspectFlags aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT);
+
+		void TransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout, std::optional<VkPipelineStageFlags2> destinationFlags, std::optional<VkAccessFlags2> destinationAccessMask);
+
+		VkImageView GetImageView() const { return m_MainImageView; }
+		VkSampler GetSampler() const { return m_Sampler; }
+
+		std::function<void()> GetDeletionFlush();
+
+		//todo, implement this
+		void RenderFromImage(const Device& device, VkCommandPool commandPool, const Image& image
+			, const std::filesystem::path& vertexShaderPath, const std::filesystem::path& fragmentShaderPath);
+
+	private:
+
+		void ConvertHDRIToCubemap(const Device& device, VkCommandPool commandPool, const Image& hdriImage);
+		void CreateSampler(const Device& device);
+
+		VkImage m_Image{};
+		VkImageView m_MainImageView{ VK_NULL_HANDLE };
+		std::array<VkImageView, 6> m_FaceViews{};
+		VkFormat m_Format{};
+		VkImageLayout m_CurrentLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
+		uint32_t m_Resolution{};
+		uint32_t m_MipLevels{ 1 };
+
+		VmaAllocation m_Allocation{ VK_NULL_HANDLE };
+
+		VkImageAspectFlags m_AspectFlags{ 0 };
+		VkAccessFlags2 m_CurrentAccessMask{ 0 };
+		VkPipelineStageFlags2 m_CurrentStage{ VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT };
+
+		VkSampler m_Sampler{ VK_NULL_HANDLE };
+
+		DeletionQueue m_DeletionQueue{};
+	};
+}
+
+#endif // !CUBEMAP_H

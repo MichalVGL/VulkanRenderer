@@ -201,7 +201,7 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 	auto& pLight1 = m_PointLights.emplace_back();
 	pLight1.pos = glm::vec3(3.f, 1.f, 0.f);
 	pLight1.lumen = 350.f;
-	pLight1.temperature = 14700; // Daylight temperature
+	pLight1.temperature = 2700; // Daylight temperature
 
 	//adjust camera, indoor settings from slides
 	m_Camera.SetAperture(1.4f);

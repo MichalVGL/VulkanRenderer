@@ -28,6 +28,8 @@ layout(set = 2, binding = 0) readonly buffer LightBuffer
     GPULight lights[];
 } lightBuffer;
 
+layout(set = 3, binding = 0) uniform samplerCube skyBox;
+
 layout(location = 0) out vec4 outColor;
 
 //==================
@@ -140,6 +142,13 @@ void main()
     
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
     vec3 Lo = vec3(0.0);
+
+    if(depth >= 1.0)
+    {
+        outColor = texture(skyBox, -V);
+        return;
+    }
+
 
     for(int i = 0; i < sceneData.lightCount; ++i) //todo: loop over actual lights
     {

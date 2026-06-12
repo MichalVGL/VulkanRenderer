@@ -10,6 +10,7 @@
 #include "Window.h"
 #include "Frame.h"
 #include "Pipeline.h"
+#include "CubeMap.h"
 
 namespace dae
 {
@@ -38,9 +39,14 @@ namespace dae
 	private:
 
 		void DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& currentFrame, const Pipeline& pipeline);
+
+		void CreateLayoutBindings();
+		void InitializeImages();
+		void InitializePipelines();
 		void CreateCommandPool();
-		void InitializeGBuffer();
+		void InitializeGBufferDescriptors();
 		void InitializeHDRImage();
+		void InitializeSkyBox();
 		void DeleteResources();
 
 		VkRenderingAttachmentInfo MakeColorAttachment(VkImageView view);
@@ -83,6 +89,12 @@ namespace dae
 		VkSampler m_HDRSampler{ VK_NULL_HANDLE };
 		VkDescriptorPool m_HDRDescriptorPool{ VK_NULL_HANDLE };
 		VkDescriptorSet m_HDRDescriptorSet{ VK_NULL_HANDLE };
+
+		//sky box 
+		CubeMap m_SkyBox{};
+		VkDescriptorPool m_SkyBoxDescriptorPool{ VK_NULL_HANDLE };
+		VkDescriptorSetLayout m_SkyboxLayout{ VK_NULL_HANDLE };
+		VkDescriptorSet m_SkyBoxDescriptorSet{ VK_NULL_HANDLE };
 
 		// Depth image
 		Image m_DepthImage{};
