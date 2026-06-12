@@ -33,6 +33,13 @@ layout(set = 3, binding = 0) uniform samplerCube skyBox;
 layout(location = 0) out vec4 outColor;
 
 //==================
+// Const Values
+//==================
+
+const float PI = 3.14159265359;
+const float AO = 1.0; // constant ambient occlusion
+
+//==================
 // Normal Decoding
 //==================
 
@@ -71,16 +78,11 @@ vec3 ReconstructWorldPos(in float depth)
     return worldPos.xyz;
 }
 
-//==================
-// Const Values
-//==================
-
-const float PI = 3.14159265359;
-const float AO = 1.0; // constant ambient occlusion
-
-// Hardcoded light data for testing
-//const vec3 direction = -vec3(0.577f, -0.577f, -0.577f);
-//const float lightIntensity = 1.f;
+vec3 TransformDirectionToCubeMap(in vec3 dir)
+{
+    vec3 transformedDir = vec3(dir.z, dir.y, -dir.x);
+    return transformedDir;
+}
 
 //==================
 // Lighting functions (declarations)
@@ -145,7 +147,7 @@ void main()
 
     if(depth >= 1.0)
     {
-        outColor = texture(skyBox, -V);
+        outColor = texture(skyBox, TransformDirectionToCubeMap(-V));
         return;
     }
 

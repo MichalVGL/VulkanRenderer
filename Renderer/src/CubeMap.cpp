@@ -5,6 +5,7 @@
 #include "Image.h"
 #include "Buffer.h"
 #include "Pipeline.h"
+#include "Texture.h"
 
 /*
 void dae::CubeMap::Init(const Device& device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, uint32_t mipLevels)
@@ -53,45 +54,247 @@ void dae::CubeMap::Init(const Device& device, uint32_t width, uint32_t height, V
 	}
 }*/
 
-void dae::CubeMap::InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, uint32_t resolution, VkFormat format, VkImageAspectFlags aspectFlags)
+void dae::CubeMap::Init(const Device& device, uint32_t resolution, VkFormat format, VkImageUsageFlags usage
+	, VkImageAspectFlags aspectFlags, uint32_t mipLevels)
 {
 	m_DeletionQueue.Flush();
 
 	m_Resolution = resolution;
 	m_Format = format;
+
 	m_AspectFlags = aspectFlags;
 
-	DeletionQueue functionDeletionQueue{};
+	uint32_t maxMipLevels = static_cast<uint32_t>(std::floor(std::log2(resolution))) + 1;
+	m_MipLevels = std::min(mipLevels, maxMipLevels);
+	m_MipLevels = std::max(m_MipLevels, 1u); // Ensure at least 1 mip level
 
 	//=================================
-	// Load the hdri image into a temporary image
+	// Initialize the cube map
 
-	//load the temp image
-	int texWidth, texHeight, texChannels;
+	VkImageCreateInfo imageInfo{};
+	imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.extent.width = resolution;
+	imageInfo.extent.height = resolution;
+	imageInfo.extent.depth = 1;
+	imageInfo.mipLevels = m_MipLevels;
+	imageInfo.arrayLayers = 6;
+	imageInfo.format = format;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageInfo.initialLayout = m_CurrentLayout; //start with undefined
+	imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT; //todo, determine the correct flags
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	imageInfo.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 
-	float* pixels = stbi_loadf(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-	uint64_t imageSize = static_cast<uint64_t>(texWidth) * texHeight * 4 * sizeof(float);
+	VmaAllocationCreateInfo vmaAllocInfo{};
+	vmaAllocInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-	if (!pixels) {
-		throw std::runtime_error("Failed to load texture file: " + filepath.string());
+	if (vmaCreateImage(device.GetAllocator(), &imageInfo, &vmaAllocInfo, &m_Image, &m_Allocation, nullptr) != VK_SUCCESS)
+		throw std::runtime_error("failed to create image!");
+	else
+	{
+		m_DeletionQueue.PushDeleter([this, allocator = device.GetAllocator(), logicalDevice = device.GetLogicalDevice()]()
+			{
+				vmaDestroyImage(allocator, m_Image, m_Allocation);
+				m_Allocation = VK_NULL_HANDLE;
+				m_Image = VK_NULL_HANDLE;
+			});
 	}
 
-	Image tempImage{};
+	CreateImageView(device);
+	CreateSampler(device);
+}
 
-	tempImage.Init(device, texWidth, texHeight, format,
-		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-	functionDeletionQueue.PushDeleter(tempImage.GetDeletionFlush());
+void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPool, const Image& sourceImage, const std::filesystem::path& vertexShaderPath, const std::filesystem::path& fragmentShaderPath)
+{
+	DeletionQueue functionDeletionQueue{};
 
-	//todo, add shader to copy the 2d image to the cubemap, then remove tempImage
+	std::array<std::vector<VkImageView>, 6> faceViews{};
 
-	Buffer stagingBuffer;
-	stagingBuffer.Init(device, imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY);
-	functionDeletionQueue.PushDeleter(stagingBuffer.GetDeletionFlush());
+	for (auto& faceViews : faceViews)
+	{
+		faceViews.resize(m_MipLevels);
+	}
 
-	// copy data to buffer
-	void* data = stagingBuffer.Map(device);
-	memcpy(data, pixels, static_cast<size_t>(imageSize));
-	stagingBuffer.Unmap(device);
+	//create the image views for each face
+	for (uint32_t i = 0; i < 6; i++)
+	{
+		for (uint32_t mipLevel = 0; mipLevel < m_MipLevels; mipLevel++)
+		{
+			VkImageViewCreateInfo faceViewInfo{};
+			faceViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			faceViewInfo.image = m_Image;
+			faceViewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			faceViewInfo.format = m_Format;
+			faceViewInfo.subresourceRange.aspectMask = m_AspectFlags;
+			faceViewInfo.subresourceRange.baseMipLevel = mipLevel;
+			faceViewInfo.subresourceRange.levelCount = 1;
+			faceViewInfo.subresourceRange.baseArrayLayer = i; // specific face
+			faceViewInfo.subresourceRange.layerCount = 1;
+
+			if (vkCreateImageView(device.GetLogicalDevice(), &faceViewInfo, nullptr, &faceViews[i][mipLevel]) != VK_SUCCESS)
+			{
+				throw std::runtime_error("Failed to create image view for cube map face!");
+			}
+			else
+			{
+				functionDeletionQueue.PushDeleter([this, logicalDevice = device.GetLogicalDevice(), faceView = faceViews[i][mipLevel]]()
+					{
+						vkDestroyImageView(logicalDevice, faceView, nullptr);
+					});
+			}
+		}
+	}
+
+	//=======================================
+	// projections and views
+
+	glm::vec3 eye = glm::vec3(0.0f, 0.0f, 0.0f); // cube center
+
+	glm::mat4 captureViews[] =
+	{
+	    // +X
+	    glm::lookAt(eye, eye + glm::vec3( 1.0f,  0.0f,  0.0f),
+	                     glm::vec3( 0.0f, -1.0f,  0.0f)),
+	
+	    // -X
+	    glm::lookAt(eye, eye + glm::vec3(-1.0f,  0.0f,  0.0f),
+	                     glm::vec3( 0.0f, -1.0f,  0.0f)),
+
+		// -Y
+		glm::lookAt(eye, eye + glm::vec3(0.0f, -1.0f,  0.0f),
+						 glm::vec3(0.0f,  0.0f, -1.0f)),
+	
+	    // +Y
+	    glm::lookAt(eye, eye + glm::vec3( 0.0f,  1.0f,  0.0f),
+	                     glm::vec3( 0.0f,  0.0f,  1.0f)),
+	
+	    // +Z
+	    glm::lookAt(eye, eye + glm::vec3( 0.0f,  0.0f,  1.0f),
+	                     glm::vec3( 0.0f, -1.0f,  0.0f)),
+	
+	    // -Z
+	    glm::lookAt(eye, eye + glm::vec3( 0.0f,  0.0f, -1.0f),
+	                     glm::vec3( 0.0f, -1.0f,  0.0f)),
+	};
+
+	glm::mat4 captureProj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+
+	// GLM fix for OpenGL-style Y coordinate in projection matrices
+	captureProj[1][1] *= -1;
+
+	//==============================
+	// Required resources for conversion shader
+
+	//create sampler
+	VkSampler hdriSampler{ VK_NULL_HANDLE };
+	VkSamplerCreateInfo samplerInfo{};
+	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerInfo.magFilter = VK_FILTER_LINEAR;
+	samplerInfo.minFilter = VK_FILTER_LINEAR;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.anisotropyEnable = VK_FALSE;
+
+	if (vkCreateSampler(device.GetLogicalDevice(), &samplerInfo, nullptr, &hdriSampler) != VK_SUCCESS)
+	{
+		throw std::runtime_error("Failed to create sampler for hdri image!");
+	}
+	else
+	{
+		functionDeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice(), hdriSampler]()
+			{
+				vkDestroySampler(logicalDevice, hdriSampler, nullptr);
+			});
+	}
+
+	// descriptor pool
+	VkDescriptorPool hdriPool{ VK_NULL_HANDLE };
+	VkDescriptorPoolSize poolSize{};
+	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSize.descriptorCount = 1;
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = 1;
+
+	if (vkCreateDescriptorPool(device.GetLogicalDevice(), &poolInfo, nullptr, &hdriPool) != VK_SUCCESS)
+	{
+		throw std::runtime_error("Failed to create descriptor pool for hdri image!");
+	}
+	else
+	{
+		functionDeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice(), hdriPool]()
+			{
+				vkDestroyDescriptorPool(logicalDevice, hdriPool, nullptr);
+			});
+	}
+
+	//==============================
+	// Pipeline
+
+	VkPushConstantRange faceIndex{};
+	faceIndex.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	faceIndex.offset = 0;
+	faceIndex.size = sizeof(ConversionPushConstants);
+
+	// create pipeline and descriptor sets for the conversion shader
+	PipelineInfo pipelineInfo{};
+	pipelineInfo.vertexShaderFilePath = vertexShaderPath.c_str();
+	pipelineInfo.fragmentShaderFilePath = fragmentShaderPath.c_str();
+	pipelineInfo.colorAttachmentFormats = { m_Format };
+	pipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+	pipelineInfo.cullMode = VK_CULL_MODE_NONE;
+	pipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
+	pipelineInfo.depthTestEnable = VK_FALSE;
+	pipelineInfo.depthWriteEnable = VK_FALSE;
+	pipelineInfo.pushConstantRange = faceIndex;
+	pipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::SingleImage;
+	pipelineInfo.additionalSetLayouts = {};
+
+	Pipeline pipeline{};
+	pipeline.Init(device, pipelineInfo);
+	functionDeletionQueue.PushDeleter(pipeline.GetDeletionFlush());
+
+	//==============================
+	// descriptor set
+
+	// allocate descriptor set
+	VkDescriptorSet descriptorSet{ VK_NULL_HANDLE };
+	VkDescriptorSetAllocateInfo allocDescInfo{};
+	allocDescInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocDescInfo.descriptorPool = hdriPool;
+	allocDescInfo.descriptorSetCount = 1;
+	allocDescInfo.pSetLayouts = &pipeline.GetDescriptorSetLayout();
+
+	if (vkAllocateDescriptorSets(device.GetLogicalDevice(), &allocDescInfo, &descriptorSet) != VK_SUCCESS)
+	{
+		throw std::runtime_error("Failed to allocate descriptor set!");
+	}
+
+	// write HDRI image into descriptor set
+	VkDescriptorImageInfo imageInfo{};
+	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	imageInfo.imageView = sourceImage.GetImageView();
+	imageInfo.sampler = hdriSampler;
+
+	VkWriteDescriptorSet write{};
+	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	write.dstSet = descriptorSet;
+	write.dstBinding = 0;
+	write.dstArrayElement = 0;
+	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	write.descriptorCount = 1;
+	write.pImageInfo = &imageInfo;
+
+	vkUpdateDescriptorSets(device.GetLogicalDevice(), 1, &write, 0, nullptr);
+
+	//==============================
+	// Command buffer
 
 	// create command buffer
 	VkCommandBufferAllocateInfo allocInfo{};
@@ -101,39 +304,93 @@ void dae::CubeMap::InitFromFile(const Device& device, VkCommandPool commandPool,
 	allocInfo.commandBufferCount = 1;
 
 	VkCommandBuffer commandBuffer;
-	vkAllocateCommandBuffers(device.GetLogicalDevice(), &allocInfo, &commandBuffer);
+	if (vkAllocateCommandBuffers(device.GetLogicalDevice(), &allocInfo, &commandBuffer) != VK_SUCCESS)
+	{
+		throw std::runtime_error("Failed to allocate command buffer!");
+	}
+	else
+	{
+		functionDeletionQueue.PushDeleter([&, commandPool, logicalDevice = device.GetLogicalDevice()]()
+			{
+				vkFreeCommandBuffers(logicalDevice, commandPool, 1, &commandBuffer);
+				commandBuffer = VK_NULL_HANDLE;
+			});
+	}
 
 	VkCommandBufferBeginInfo beginInfo{};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+	//==============================
+	// execute gpu conversion
 
 	vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-	// transition image
-	tempImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+	//transition cubemap to be written to
+	TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
-	// copy buffer to image
-	VkBufferImageCopy region{};
-	region.bufferOffset = 0;
-	region.bufferRowLength = 0;
-	region.bufferImageHeight = 0;
+	pipeline.Bind(commandBuffer);
 
-	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	region.imageSubresource.mipLevel = 0;
-	region.imageSubresource.baseArrayLayer = 0;
-	region.imageSubresource.layerCount = 1;
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS
+		, pipeline.GetPipelineLayout()
+		, 0, 1, &descriptorSet, 0, nullptr);
 
-	region.imageOffset = { 0, 0, 0 };
-	region.imageExtent = { static_cast<uint32_t>(texWidth), static_cast<uint32_t>(texHeight), 1 };
+	for (uint32_t mip = 0; mip < m_MipLevels; mip++)
+	{
+		//divide by 2 for each mip level, but clamp to 1
+		uint32_t size = std::max(1u, m_Resolution >> mip); 
 
-	vkCmdCopyBufferToImage(commandBuffer, stagingBuffer.GetBuffer(), tempImage.GetImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+		for (uint32_t face = 0; face < 6; face++)
+		{
+			// target this face as color attachment
+			VkRenderingAttachmentInfo colorAttachment{};
+			colorAttachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+			colorAttachment.imageView = faceViews[face][mip]; // per-face view
+			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+			colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+			colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			colorAttachment.clearValue.color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
 
-	// transition to shader read optimal
-	tempImage.TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+			VkRenderingInfo renderingInfo{};
+			renderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+			renderingInfo.renderArea = { {0, 0}, {size, size} };
+			renderingInfo.layerCount = 1;
+			renderingInfo.colorAttachmentCount = 1;
+			renderingInfo.pColorAttachments = &colorAttachment;
 
-	// submit command buffer
+			vkCmdBeginRendering(commandBuffer, &renderingInfo);
+
+			// set viewport and scissor
+			VkViewport viewport{};
+			viewport.width = static_cast<float>(size);
+			viewport.height = static_cast<float>(size);
+			viewport.minDepth = 0.0f;
+			viewport.maxDepth = 1.0f;
+			vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+			VkRect2D scissor{};
+			scissor.extent = { size, size };
+			vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+			//pipeline.Bind(commandBuffer);
+
+			// push face index
+			ConversionPushConstants pushConstants{};
+			pushConstants.captureProj = captureProj;
+			pushConstants.captureView = captureViews[face];
+			vkCmdPushConstants(commandBuffer, pipeline.GetPipelineLayout(),
+				VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ConversionPushConstants), &pushConstants);
+
+			vkCmdDraw(commandBuffer, 36, 1, 0, 0); // fullscreen triangle
+			vkCmdEndRendering(commandBuffer);
+		}
+	}
+
+	TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT);
+
 	vkEndCommandBuffer(commandBuffer);
 
 	VkSubmitInfo submitInfo{};
@@ -146,9 +403,25 @@ void dae::CubeMap::InitFromFile(const Device& device, VkCommandPool commandPool,
 
 	// wait for completion
 	vkQueueWaitIdle(graphicsQueue);
+}
 
-	// cleanup
-	vkFreeCommandBuffers(device.GetLogicalDevice(), commandPool, 1, &commandBuffer);
+/*
+void dae::CubeMap::InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath
+	, uint32_t resolution, VkFormat format, VkImageAspectFlags aspectFlags)
+{
+	m_DeletionQueue.Flush();
+
+	m_Resolution = resolution;
+	m_Format = format;
+	m_AspectFlags = aspectFlags;
+
+	DeletionQueue functionDeletionQueue{};
+
+	//=================================
+	// Load the hdri image into a temporary image
+
+	Texture tempTexture{};
+	tempTexture.InitFromFile(device, commandPool, filepath, format, 1);
 
 	//=================================
 	// Initialize the cube map
@@ -215,7 +488,7 @@ void dae::CubeMap::InitFromFile(const Device& device, VkCommandPool commandPool,
 	// Fill the cube map with the hdri data
 
 	// Image now loaded in gpu, copy to cubemap using shader
-	ConvertHDRIToCubemap(device, commandPool, tempImage);
+	ConvertHDRIToCubemap(device, commandPool, tempTexture.GetImage());
 
 	//set the main view
 	VkImageViewCreateInfo cubeViewInfo{};
@@ -244,7 +517,7 @@ void dae::CubeMap::InitFromFile(const Device& device, VkCommandPool commandPool,
 
 	//create the sampler
 	CreateSampler(device);
-}
+}*/
 
 void dae::CubeMap::TransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout, std::optional<VkPipelineStageFlags2> destinationFlags, std::optional<VkAccessFlags2> destinationAccessMask)
 {
@@ -295,13 +568,44 @@ std::function<void()> dae::CubeMap::GetDeletionFlush()
 	);
 }
 
-void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPool, const Image& image, const std::filesystem::path& vertexShaderPath, const std::filesystem::path& fragmentShaderPath)
-{
-
-}
-
+/*
 void dae::CubeMap::ConvertHDRIToCubemap(const Device& device, VkCommandPool commandPool, const Image& hdriImage)
 {
+	glm::vec3 eye = glm::vec3(0.0f, 0.0f, 0.0f); // cube center
+
+	glm::mat4 captureViews[] =
+	{
+	    // +X
+	    glm::lookAt(eye, eye + glm::vec3( 1.0f,  0.0f,  0.0f),
+	                     glm::vec3( 0.0f, -1.0f,  0.0f)),
+	
+	    // -X
+	    glm::lookAt(eye, eye + glm::vec3(-1.0f,  0.0f,  0.0f),
+	                     glm::vec3( 0.0f, -1.0f,  0.0f)),
+
+		// -Y
+		glm::lookAt(eye, eye + glm::vec3(0.0f, -1.0f,  0.0f),
+						 glm::vec3(0.0f,  0.0f, -1.0f)),
+	
+	    // +Y
+	    glm::lookAt(eye, eye + glm::vec3( 0.0f,  1.0f,  0.0f),
+	                     glm::vec3( 0.0f,  0.0f,  1.0f)),
+	
+	    // +Z
+	    glm::lookAt(eye, eye + glm::vec3( 0.0f,  0.0f,  1.0f),
+	                     glm::vec3( 0.0f, -1.0f,  0.0f)),
+	
+	    // -Z
+	    glm::lookAt(eye, eye + glm::vec3( 0.0f,  0.0f, -1.0f),
+	                     glm::vec3( 0.0f, -1.0f,  0.0f)),
+	};
+
+	glm::mat4 captureProj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
+
+	// GLM fix for OpenGL-style Y coordinate in projection matrices
+	captureProj[1][1] *= -1;
+
+
 	DeletionQueue functionDeletionQueue{};
 
 	//==============================
@@ -329,31 +633,6 @@ void dae::CubeMap::ConvertHDRIToCubemap(const Device& device, VkCommandPool comm
 				vkDestroySampler(logicalDevice, hdriSampler, nullptr);
 			});
 	}
-
-	// descriptor set layout
-	//VkDescriptorSetLayout hdriLayout{ VK_NULL_HANDLE };
-	//VkDescriptorSetLayoutBinding hdriBinding{};
-	//hdriBinding.binding = 0;
-	//hdriBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	//hdriBinding.descriptorCount = 1;
-	//hdriBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-	//
-	//VkDescriptorSetLayoutCreateInfo layoutInfo{};
-	//layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	//layoutInfo.bindingCount = 1;
-	//layoutInfo.pBindings = &hdriBinding;
-
-	//if (vkCreateDescriptorSetLayout(device.GetLogicalDevice(), &layoutInfo, nullptr, &hdriLayout) != VK_SUCCESS)
-	//{
-	//	throw std::runtime_error("Failed to create descriptor set layout for hdri image!");
-	//}
-	//else
-	//{
-	//	functionDeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice(), hdriLayout]()
-	//		{
-	//			vkDestroyDescriptorSetLayout(logicalDevice, hdriLayout, nullptr);
-	//		});
-	//}
 
 	// descriptor pool
 	VkDescriptorPool hdriPool{ VK_NULL_HANDLE };
@@ -383,9 +662,9 @@ void dae::CubeMap::ConvertHDRIToCubemap(const Device& device, VkCommandPool comm
 	// Pipeline
 
 	VkPushConstantRange faceIndex{};
-	faceIndex.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	faceIndex.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	faceIndex.offset = 0;
-	faceIndex.size = sizeof(uint32_t);
+	faceIndex.size = sizeof(ConversionPushConstants);
 
 	// create pipeline and descriptor sets for the conversion shader
 	PipelineInfo pipelineInfo{};
@@ -517,11 +796,13 @@ void dae::CubeMap::ConvertHDRIToCubemap(const Device& device, VkCommandPool comm
 		//pipeline.Bind(commandBuffer);
 
 		// push face index
-		uint32_t faceIndex = face;
+		ConversionPushConstants pushConstants{};
+		pushConstants.captureProj = captureProj;
+		pushConstants.captureView = captureViews[face];
 		vkCmdPushConstants(commandBuffer, pipeline.GetPipelineLayout(),
-			VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(uint32_t), &faceIndex);
+			VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ConversionPushConstants), &pushConstants);
 
-		vkCmdDraw(commandBuffer, 3, 1, 0, 0); // fullscreen triangle
+		vkCmdDraw(commandBuffer, 36, 1, 0, 0); // fullscreen triangle
 		vkCmdEndRendering(commandBuffer);
 	}
 
@@ -542,6 +823,7 @@ void dae::CubeMap::ConvertHDRIToCubemap(const Device& device, VkCommandPool comm
 	// wait for completion
 	vkQueueWaitIdle(graphicsQueue);
 }
+*/
 
 void dae::CubeMap::CreateSampler(const Device& device)
 {
@@ -580,5 +862,135 @@ void dae::CubeMap::CreateSampler(const Device& device)
 				m_Sampler = VK_NULL_HANDLE;
 			});
 	}
+}
+
+void dae::CubeMap::CreateImageView(const Device& device)
+{
+	VkImageViewCreateInfo cubeViewInfo{};
+	cubeViewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	cubeViewInfo.image = m_Image;
+	cubeViewInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+	cubeViewInfo.format = m_Format;
+
+	cubeViewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	cubeViewInfo.subresourceRange.baseMipLevel = 0;
+	cubeViewInfo.subresourceRange.levelCount = m_MipLevels;
+	cubeViewInfo.subresourceRange.baseArrayLayer = 0;
+	cubeViewInfo.subresourceRange.layerCount = 6;
+
+	if (vkCreateImageView(device.GetLogicalDevice(), &cubeViewInfo, nullptr, &m_MainImageView) != VK_SUCCESS)
+	{
+		throw std::runtime_error("Failed to create main image view for cube map!");
+	}
+	else
+	{
+		m_DeletionQueue.PushDeleter([this, logicalDevice = device.GetLogicalDevice()]()
+			{
+				vkDestroyImageView(logicalDevice, m_MainImageView, nullptr);
+				m_MainImageView = VK_NULL_HANDLE;
+			});
+	}
+}
+
+void dae::CubeMap::GenerateMipmaps(VkCommandBuffer cmd)
+{
+	int32_t mipLevels = m_MipLevels;
+
+	if (mipLevels <= 1) return; //nothing to generate
+
+	int32_t mipRes = m_Resolution;
+
+	for (uint32_t i = 1; i < mipLevels; i++) {
+		// Transition to TRANSFER_SRC for the previous mip level
+		VkImageMemoryBarrier2 barrier{};
+		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+		barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		barrier.image = m_Image;
+		barrier.subresourceRange.aspectMask = m_AspectFlags;
+		barrier.subresourceRange.baseMipLevel = i - 1;
+		barrier.subresourceRange.levelCount = 1;
+		barrier.subresourceRange.baseArrayLayer = 0;
+		barrier.subresourceRange.layerCount = 1;
+
+		VkDependencyInfo depInfo{};
+		depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+		depInfo.imageMemoryBarrierCount = 1;
+		depInfo.pImageMemoryBarriers = &barrier;
+
+		vkCmdPipelineBarrier2(cmd, &depInfo);
+
+		//blit
+		VkImageBlit2 blit{};
+		blit.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
+		blit.srcOffsets[0] = { 0, 0, 0 };
+		blit.srcOffsets[1] = { mipRes, mipRes, 1 };
+		blit.srcSubresource.aspectMask = m_AspectFlags;
+		blit.srcSubresource.mipLevel = i - 1;
+		blit.srcSubresource.baseArrayLayer = 0;
+		blit.srcSubresource.layerCount = 1;
+		blit.dstOffsets[0] = { 0, 0, 0 };
+		blit.dstOffsets[1] = { mipRes > 1 ? mipRes / 2 : 1, mipRes > 1 ? mipRes / 2 : 1, 1 };
+		blit.dstSubresource.aspectMask = m_AspectFlags;
+		blit.dstSubresource.mipLevel = i;
+		blit.dstSubresource.baseArrayLayer = 0;
+		blit.dstSubresource.layerCount = 1;
+
+		VkBlitImageInfo2 blitInfo{};
+		blitInfo.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
+		blitInfo.srcImage = m_Image;
+		blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		blitInfo.dstImage = m_Image;
+		blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		blitInfo.regionCount = 1;
+		blitInfo.pRegions = &blit;
+		blitInfo.filter = VK_FILTER_LINEAR;
+
+		vkCmdBlitImage2(cmd, &blitInfo);
+
+		// Transition previous mip level to SHADER_READ_ONLY_OPTIMAL
+		barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+		barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+		barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+		barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+		barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		vkCmdPipelineBarrier2(cmd, &depInfo);
+
+		if (mipRes > 1) mipRes /= 2;
+	}
+
+	// Transition the very last mip level from TRANSFER_DST to SHADER_READ_ONLY
+	VkImageMemoryBarrier2 finalBarrier{};
+	finalBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+	finalBarrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+	finalBarrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+	finalBarrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+	finalBarrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+	finalBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	finalBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	finalBarrier.image = m_Image;
+	finalBarrier.subresourceRange.aspectMask = m_AspectFlags;
+	finalBarrier.subresourceRange.baseMipLevel = mipLevels - 1;
+	finalBarrier.subresourceRange.levelCount = 1;
+	finalBarrier.subresourceRange.baseArrayLayer = 0;
+	finalBarrier.subresourceRange.layerCount = 1;
+
+	VkDependencyInfo finalDepInfo{};
+	finalDepInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	finalDepInfo.imageMemoryBarrierCount = 1;
+	finalDepInfo.pImageMemoryBarriers = &finalBarrier;
+
+	vkCmdPipelineBarrier2(cmd, &finalDepInfo);
+
+	// Update internal tracking
+	m_CurrentLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	m_CurrentStage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+	m_CurrentAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
 }
 

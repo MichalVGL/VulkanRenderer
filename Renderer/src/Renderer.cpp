@@ -812,7 +812,15 @@ void dae::Renderer::InitializeHDRImage()
 
 void dae::Renderer::InitializeSkyBox()
 {
-	m_SkyBox.InitFromFile(m_Device, m_CommandPool, "Resources/hdri/circus_arena_4k.hdr");
+	Texture tempTexture{};
+	tempTexture.InitFromFile(m_Device, m_CommandPool, "Resources/hdri/circus_arena_4k.hdr", VK_FORMAT_R32G32B32A32_SFLOAT, 1);
+
+	m_SkyBox.Init(m_Device, 1024, VK_FORMAT_R32G32B32A32_SFLOAT
+		, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+		, VK_IMAGE_ASPECT_COLOR_BIT);
+	m_SkyBox.RenderFromImage(m_Device, m_CommandPool, tempTexture.GetImage()
+		, "resources/shaders/CubeMapConvert.vert.spv", "resources/shaders/CubeMapConvert.frag.spv");
+	//m_SkyBox.InitFromFile(m_Device, m_CommandPool, "Resources/hdri/circus_arena_4k.hdr");
 	m_DeletionQueue.PushDeleter(m_SkyBox.GetDeletionFlush());
 
 	VkDescriptorPoolSize poolSize{};

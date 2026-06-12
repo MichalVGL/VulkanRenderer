@@ -7,6 +7,13 @@
 
 namespace dae
 {
+	enum class BytesPerPixel
+	{
+		Int_4B,
+		Int_8B,
+		Float_16B
+	};
+
 	class Texture final
 	{
 	public:
@@ -19,7 +26,7 @@ namespace dae
 		Texture& operator=(Texture&&) = delete;
 
 		void Init(const Device& device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, uint32_t mipLevels = 1);
-		void InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB);
+		void InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, VkFormat format = VK_FORMAT_R8G8B8A8_SRGB, uint32_t maxMipLevels = 999);
 
 		void LoadPixels(const Device& device, VkCommandPool commandPool, void* pixels, uint32_t width, uint32_t height, uint32_t pixelSize = 4);
 
@@ -30,7 +37,7 @@ namespace dae
 
 	private:
 
-		uint32_t GetBytesPerPixel(VkFormat format);
+		BytesPerPixel GetBytesPerPixel(VkFormat format);
 
 		Image m_Image{};
 		VkSampler m_Sampler{ VK_NULL_HANDLE };

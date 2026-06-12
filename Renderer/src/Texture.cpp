@@ -49,44 +49,58 @@ void dae::Texture::Init(const Device& device, uint32_t width, uint32_t height, V
 	}
 }
 
-void dae::Texture::InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, VkFormat format)
+void dae::Texture::InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, VkFormat format, uint32_t maxMipLevels)
 {
 	// read image
 	int texWidth, texHeight, texChannels;
 
-	uint32_t bytesPerPixel = GetBytesPerPixel(format);
-	bool load16Bit = (bytesPerPixel == 8);
+	auto bytesPerPixel = GetBytesPerPixel(format);
 
-	stbi_uc* pixels{};
-	stbi_us* pixels16{};
+	stbi_uc* pixelsI8{};
+	stbi_us* pixelsI16{};
+	float* pixelsF32{};
 
-	if (!load16Bit)
-		pixels = stbi_load(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
-	else 
-		pixels16 = stbi_load_16(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+	switch (bytesPerPixel)	
+	{
+	case dae::BytesPerPixel::Int_4B:
+		pixelsI8 = stbi_load(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		break;
+	case dae::BytesPerPixel::Int_8B:
+		pixelsI16 = stbi_load_16(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		break;
+	case dae::BytesPerPixel::Float_16B:
+		pixelsF32 = stbi_loadf(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		break;
+	}
 
-	if (!pixels && !pixels16) {
+	if (!pixelsI8 && !pixelsI16 && !pixelsF32) {
 		throw std::runtime_error("Failed to load texture file: " + filepath.string());
 	}
 
 	// calculate mip levels
 	uint32_t mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
+	mipLevels = std::min(mipLevels, maxMipLevels);
+	mipLevels = std::max(mipLevels, 1u); // ensure at least 1 mip level (just the textue itself)
 
 	// init texture
 	Init(device, texWidth, texHeight, format,
 		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, mipLevels);
 
-	// load to gpu
-	if (!load16Bit)
-		LoadPixels(device, commandPool, pixels, texWidth, texHeight, GetBytesPerPixel(format));
-	else
-		LoadPixels(device, commandPool, pixels16, texWidth, texHeight, GetBytesPerPixel(format));
-
-	// unload image from cpu memory
-	if (!load16Bit)
-		stbi_image_free(pixels);
-	else
-		stbi_image_free(pixels16);
+	switch (bytesPerPixel)
+	{
+	case dae::BytesPerPixel::Int_4B:
+		LoadPixels(device, commandPool, pixelsI8, texWidth, texHeight, 4);
+		stbi_image_free(pixelsI8);
+		break;
+	case dae::BytesPerPixel::Int_8B:
+		LoadPixels(device, commandPool, pixelsI16, texWidth, texHeight, 8);
+		stbi_image_free(pixelsI16);
+		break;
+	case dae::BytesPerPixel::Float_16B:
+		LoadPixels(device, commandPool, pixelsF32, texWidth, texHeight, 16);
+		stbi_image_free(pixelsF32);
+		break;
+	}
 }
 
 void dae::Texture::LoadPixels(const Device& device, VkCommandPool commandPool, void* pixels, uint32_t width, uint32_t height, uint32_t pixelSize)
@@ -171,16 +185,19 @@ std::function<void()> dae::Texture::GetDeletionFlush()
 	);
 }
 
-uint32_t dae::Texture::GetBytesPerPixel(VkFormat format)
+dae::BytesPerPixel dae::Texture::GetBytesPerPixel(VkFormat format)
 {
 	switch (format)
 	{
 	case VK_FORMAT_R8G8B8A8_UNORM:
 	case VK_FORMAT_R8G8B8A8_SRGB:
-		return 4;
+		return BytesPerPixel::Int_4B;
 
 	case VK_FORMAT_R16G16B16A16_UNORM:
-		return 8;
+		return BytesPerPixel::Int_8B;
+
+	case VK_FORMAT_R32G32B32A32_SFLOAT:
+		return BytesPerPixel::Float_16B;
 
 	default:
 		throw std::runtime_error("Unsupported texture format");
