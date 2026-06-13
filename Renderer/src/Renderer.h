@@ -11,6 +11,7 @@
 #include "Frame.h"
 #include "Pipeline.h"
 #include "CubeMap.h"
+#include "Texture.h"
 
 namespace dae
 {
@@ -46,7 +47,7 @@ namespace dae
 		void CreateCommandPool();
 		void InitializeGBufferDescriptors();
 		void InitializeHDRImage();
-		void InitializeSkyBox();
+		void InitializeIBL();
 		void DeleteResources();
 
 		VkRenderingAttachmentInfo MakeColorAttachment(VkImageView view);
@@ -95,6 +96,12 @@ namespace dae
 		VkDescriptorPool m_SkyBoxDescriptorPool{ VK_NULL_HANDLE };
 		VkDescriptorSetLayout m_SkyboxLayout{ VK_NULL_HANDLE };
 		VkDescriptorSet m_SkyBoxDescriptorSet{ VK_NULL_HANDLE };
+
+		//IBL diffuse box 
+		CubeMap m_IBLDiffuse{};
+		VkDescriptorPool m_IBLDiffuseDescriptorPool{ VK_NULL_HANDLE };
+		VkDescriptorSetLayout m_IBLDiffuseLayout{ VK_NULL_HANDLE };
+		VkDescriptorSet m_IBLDiffuseDescriptorSet{ VK_NULL_HANDLE };
 
 		// Depth image
 		Image m_DepthImage{};

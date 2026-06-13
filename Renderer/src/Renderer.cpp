@@ -58,7 +58,7 @@ void dae::Renderer::Init(const Window* pWindow)
 	InitializeGBufferDescriptors();
 	InitializeHDRImage();
 	//initialize the skybox
-	InitializeSkyBox();
+	InitializeIBL();
 
 
 	m_DeletionQueue.PushDeleter([this]()
@@ -103,7 +103,7 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 
 	// depth attachment
 	VkRenderingAttachmentInfo depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView(), true, true);
-	
+
 	VkRenderingInfo depthPrePassRenderingInfo{};
 	depthPrePassRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 	depthPrePassRenderingInfo.renderArea = { {0, 0}, m_Swapchain.GetExtent() };
@@ -226,11 +226,11 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	SetViewportScissor(commandBuffer);
 	m_LightingPipeline.Bind(commandBuffer);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_LightingPipeline.GetPipelineLayout(), 
+		m_LightingPipeline.GetPipelineLayout(),
 		0, 1, &m_GBufferDescriptorSet, 0, nullptr);
 	VkDescriptorSet sceneDataSet = currentFrame.GetSceneDataDescriptorSet();
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-		m_LightingPipeline.GetPipelineLayout(), 
+		m_LightingPipeline.GetPipelineLayout(),
 		1, 1, &sceneDataSet, 0, nullptr);
 	VkDescriptorSet lightSet = currentFrame.GetLightDescriptorSet();
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -238,7 +238,7 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 		2, 1, &lightSet, 0, nullptr);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		m_LightingPipeline.GetPipelineLayout(),
-		3, 1, &m_SkyBoxDescriptorSet, 0, nullptr);
+		3, 1, &m_IBLDiffuseDescriptorSet, 0, nullptr);
 	vkCmdDraw(commandBuffer, 3, 1, 0, 0); // fullscreen triangle, hardcoded in shader
 	vkCmdEndRendering(commandBuffer);
 
@@ -415,28 +415,56 @@ void dae::Renderer::CreateLayoutBindings()
 			m_SceneDataLayout = VK_NULL_HANDLE;
 		});
 
-	// cubemap
+	//=========================
+	// cubemaps 
 
-	VkDescriptorSetLayoutBinding cubemapBinding{};
-	cubemapBinding.binding = 0;
-	cubemapBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	cubemapBinding.descriptorCount = 1;
-	cubemapBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+	//Skybox
+	{
+		VkDescriptorSetLayoutBinding binding{};
+		binding.binding = 0;
+		binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		binding.descriptorCount = 1;
+		binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-	VkDescriptorSetLayoutCreateInfo cubemapLayoutInfo{};
-	cubemapLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	cubemapLayoutInfo.bindingCount = 1;
-	cubemapLayoutInfo.pBindings = &cubemapBinding;
+		VkDescriptorSetLayoutCreateInfo layoutInfo{};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = 1;
+		layoutInfo.pBindings = &binding;
 
-	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
-		&cubemapLayoutInfo, nullptr, &m_SkyboxLayout);
+		vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
+			&layoutInfo, nullptr, &m_SkyboxLayout);
 
-	m_DeletionQueue.PushDeleter([this]()
-		{
-			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(),
-				m_SkyboxLayout, nullptr);
-			m_SkyboxLayout = VK_NULL_HANDLE;
-		});
+		m_DeletionQueue.PushDeleter([this]()
+			{
+				vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(),
+					m_SkyboxLayout, nullptr);
+				m_SkyboxLayout = VK_NULL_HANDLE;
+			});
+	}
+
+	//IBL diffuse
+	{
+		VkDescriptorSetLayoutBinding binding{};
+		binding.binding = 0;
+		binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		binding.descriptorCount = 1;
+		binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+		VkDescriptorSetLayoutCreateInfo layoutInfo{};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = 1;
+		layoutInfo.pBindings = &binding;
+
+		vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
+			&layoutInfo, nullptr, &m_IBLDiffuseLayout);
+
+		m_DeletionQueue.PushDeleter([this]()
+			{
+				vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(),
+					m_IBLDiffuseLayout, nullptr);
+				m_IBLDiffuseLayout = VK_NULL_HANDLE;
+			});
+	}
 }
 
 void dae::Renderer::InitializeImages()
@@ -547,7 +575,7 @@ void dae::Renderer::InitializePipelines()
 	lightingPipelineInfo.depthTestEnable = VK_FALSE;
 	lightingPipelineInfo.depthWriteEnable = VK_FALSE;
 	lightingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::GBuffer;
-	lightingPipelineInfo.additionalSetLayouts = { m_SceneDataLayout, m_LightLayout, m_SkyboxLayout };
+	lightingPipelineInfo.additionalSetLayouts = { m_SceneDataLayout, m_LightLayout, m_IBLDiffuseLayout };
 
 	m_LightingPipeline.Init(m_Device, lightingPipelineInfo);
 	m_DeletionQueue.PushDeleter(m_LightingPipeline.GetDeletionFlush());
@@ -630,7 +658,7 @@ void dae::Renderer::InitializeGBufferDescriptors()
 	poolInfo.pPoolSizes = &poolSize;
 	poolInfo.maxSets = 1;
 
-	if(vkCreateDescriptorPool(m_Device.GetLogicalDevice(), &poolInfo, nullptr, &m_GBufferDescriptorPool) != VK_SUCCESS) 
+	if (vkCreateDescriptorPool(m_Device.GetLogicalDevice(), &poolInfo, nullptr, &m_GBufferDescriptorPool) != VK_SUCCESS)
 	{
 		throw std::runtime_error("[Renderer] failed to create GBuffer descriptor pool!");
 	}
@@ -653,7 +681,7 @@ void dae::Renderer::InitializeGBufferDescriptors()
 	allocInfo.descriptorSetCount = 1;
 	allocInfo.pSetLayouts = &m_LightingPipeline.GetDescriptorSetLayout();
 
-	if(vkAllocateDescriptorSets(m_Device.GetLogicalDevice(), &allocInfo, &m_GBufferDescriptorSet) != VK_SUCCESS)
+	if (vkAllocateDescriptorSets(m_Device.GetLogicalDevice(), &allocInfo, &m_GBufferDescriptorSet) != VK_SUCCESS)
 	{
 		throw std::runtime_error("[Renderer] failed to allocate GBuffer descriptor set!");
 	}
@@ -810,67 +838,134 @@ void dae::Renderer::InitializeHDRImage()
 		1, &write, 0, nullptr);
 }
 
-void dae::Renderer::InitializeSkyBox()
+void dae::Renderer::InitializeIBL()
 {
+	// Sky Box
+
+	DeletionQueue functionDeletionQueue{};
+
+	//todo, delete temp
 	Texture tempTexture{};
-	tempTexture.InitFromFile(m_Device, m_CommandPool, "Resources/hdri/circus_arena_4k.hdr", VK_FORMAT_R32G32B32A32_SFLOAT, 1);
+	tempTexture.InitFromFile(m_Device, m_CommandPool, "Resources/hdri/circus_arena_4k.hdr", VK_FORMAT_R32G32B32A32_SFLOAT);
+	functionDeletionQueue.PushDeleter(tempTexture.GetDeletionFlush());
 
 	m_SkyBox.Init(m_Device, 1024, VK_FORMAT_R32G32B32A32_SFLOAT
 		, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
 		, VK_IMAGE_ASPECT_COLOR_BIT);
-	m_SkyBox.RenderFromImage(m_Device, m_CommandPool, tempTexture.GetImage()
-		, "resources/shaders/CubeMapConvert.vert.spv", "resources/shaders/CubeMapConvert.frag.spv");
-	//m_SkyBox.InitFromFile(m_Device, m_CommandPool, "Resources/hdri/circus_arena_4k.hdr");
+	m_SkyBox.RenderFromImage(m_Device, m_CommandPool, tempTexture.GetImage().GetImageView(), tempTexture.GetImage().GetCurrentLayout()
+		, "resources/shaders/UnitCube.vert.spv", "resources/shaders/CubeMapConvert.frag.spv");
 	m_DeletionQueue.PushDeleter(m_SkyBox.GetDeletionFlush());
 
-	VkDescriptorPoolSize poolSize{};
-	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSize.descriptorCount = 1;
-
-	VkDescriptorPoolCreateInfo poolInfo{};
-	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.poolSizeCount = 1;
-	poolInfo.pPoolSizes = &poolSize;
-	poolInfo.maxSets = 1;
-
-	if (vkCreateDescriptorPool(m_Device.GetLogicalDevice(), &poolInfo, nullptr, &m_SkyBoxDescriptorPool) != VK_SUCCESS)
 	{
-		throw std::runtime_error("[Renderer] failed to create SkyBox descriptor pool!");
+		VkDescriptorPoolSize poolSize{};
+		poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		poolSize.descriptorCount = 1;
+
+		VkDescriptorPoolCreateInfo poolInfo{};
+		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		poolInfo.poolSizeCount = 1;
+		poolInfo.pPoolSizes = &poolSize;
+		poolInfo.maxSets = 1;
+
+		if (vkCreateDescriptorPool(m_Device.GetLogicalDevice(), &poolInfo, nullptr, &m_SkyBoxDescriptorPool) != VK_SUCCESS)
+		{
+			throw std::runtime_error("[Renderer] failed to create SkyBox descriptor pool!");
+		}
+		else
+		{
+			m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+				{
+					vkDestroyDescriptorPool(logicalDevice, m_SkyBoxDescriptorPool, nullptr);
+					m_SkyBoxDescriptorPool = VK_NULL_HANDLE;
+				});
+		}
+
+		VkDescriptorSetAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocInfo.descriptorPool = m_SkyBoxDescriptorPool;
+		allocInfo.descriptorSetCount = 1;
+		allocInfo.pSetLayouts = &m_SkyboxLayout;
+
+		if (vkAllocateDescriptorSets(m_Device.GetLogicalDevice(), &allocInfo, &m_SkyBoxDescriptorSet) != VK_SUCCESS)
+		{
+			throw std::runtime_error("[Renderer] failed to allocate SkyBox descriptor set!");
+		}
+
+		VkDescriptorImageInfo imageInfo{};
+		imageInfo.sampler = m_SkyBox.GetSampler();
+		imageInfo.imageView = m_SkyBox.GetImageView();
+		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = m_SkyBoxDescriptorSet;
+		write.dstBinding = 0;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.descriptorCount = 1;
+		write.pImageInfo = &imageInfo;
+
+		vkUpdateDescriptorSets(m_Device.GetLogicalDevice(), 1, &write, 0, nullptr);
 	}
-	else
+
+	// IBL Diffuse
+
+	m_IBLDiffuse.Init(m_Device, 64, VK_FORMAT_R32G32B32A32_SFLOAT
+		, VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+		, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+
+	m_IBLDiffuse.RenderFromImage(m_Device, m_CommandPool, m_SkyBox.GetImageView(), m_SkyBox.GetCurrentLayout()
+		, "resources/shaders/UnitCube.vert.spv", "resources/shaders/IBLDiffuse.frag.spv");
+	m_DeletionQueue.PushDeleter(m_IBLDiffuse.GetDeletionFlush());
 	{
-		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
-			{
-				vkDestroyDescriptorPool(logicalDevice, m_SkyBoxDescriptorPool, nullptr);
-				m_SkyBoxDescriptorPool = VK_NULL_HANDLE;
-			});
+		VkDescriptorPoolSize poolSize{};
+		poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		poolSize.descriptorCount = 1;
+
+		VkDescriptorPoolCreateInfo poolInfo{};
+		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		poolInfo.poolSizeCount = 1;
+		poolInfo.pPoolSizes = &poolSize;
+		poolInfo.maxSets = 1;
+
+		if (vkCreateDescriptorPool(m_Device.GetLogicalDevice(), &poolInfo, nullptr, &m_IBLDiffuseDescriptorPool) != VK_SUCCESS)
+		{
+			throw std::runtime_error("[Renderer] failed to create IBL Diffuse descriptor pool!");
+		}
+		else
+		{
+			m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+				{
+					vkDestroyDescriptorPool(logicalDevice, m_IBLDiffuseDescriptorPool, nullptr);
+					m_IBLDiffuseDescriptorPool = VK_NULL_HANDLE;
+				});
+		}
+
+		VkDescriptorSetAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		allocInfo.descriptorPool = m_IBLDiffuseDescriptorPool;
+		allocInfo.descriptorSetCount = 1;
+		allocInfo.pSetLayouts = &m_IBLDiffuseLayout;
+
+		if (vkAllocateDescriptorSets(m_Device.GetLogicalDevice(), &allocInfo, &m_IBLDiffuseDescriptorSet) != VK_SUCCESS)
+		{
+			throw std::runtime_error("[Renderer] failed to allocate IBL Diffuse descriptor set!");
+		}
+
+		VkDescriptorImageInfo imageInfo{};
+		imageInfo.sampler = m_IBLDiffuse.GetSampler();
+		imageInfo.imageView = m_IBLDiffuse.GetImageView();
+		imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+		VkWriteDescriptorSet write{};
+		write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		write.dstSet = m_IBLDiffuseDescriptorSet;
+		write.dstBinding = 0;
+		write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		write.descriptorCount = 1;
+		write.pImageInfo = &imageInfo;
+
+		vkUpdateDescriptorSets(m_Device.GetLogicalDevice(), 1, &write, 0, nullptr);
 	}
-
-	VkDescriptorSetAllocateInfo allocInfo{};
-	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocInfo.descriptorPool = m_SkyBoxDescriptorPool;
-	allocInfo.descriptorSetCount = 1;
-	allocInfo.pSetLayouts = &m_SkyboxLayout;
-
-	if (vkAllocateDescriptorSets(m_Device.GetLogicalDevice(), &allocInfo, &m_SkyBoxDescriptorSet) != VK_SUCCESS)
-	{
-		throw std::runtime_error("[Renderer] failed to allocate SkyBox descriptor set!");
-	}
-
-	VkDescriptorImageInfo imageInfo{};
-	imageInfo.sampler = m_SkyBox.GetSampler();
-	imageInfo.imageView = m_SkyBox.GetImageView();
-	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-	VkWriteDescriptorSet write{};
-	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	write.dstSet = m_SkyBoxDescriptorSet;
-	write.dstBinding = 0;
-	write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	write.descriptorCount = 1;
-	write.pImageInfo = &imageInfo;
-
-	vkUpdateDescriptorSets(m_Device.GetLogicalDevice(), 1, &write, 0, nullptr);
 }
 
 void dae::Renderer::DeleteResources()

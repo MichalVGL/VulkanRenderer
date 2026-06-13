@@ -1,5 +1,7 @@
 #include "Texture.h"
 
+#include <glm/gtc/packing.hpp>
+
 #include "Device.h"
 #include "VulkanSetup.h"
 #include "Buffer.h"
@@ -7,10 +9,6 @@
 void dae::Texture::Init(const Device& device, uint32_t width, uint32_t height, VkFormat format, VkImageUsageFlags usage, uint32_t mipLevels)
 {
 	m_DeletionQueue.Flush();
-
-	// Initialize the image and view
-	m_Image.Init(device, width, height, format, usage, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
-	m_DeletionQueue.PushDeleter(m_Image.GetDeletionFlush());
 
 	// Create the Sampler
 	VkSamplerCreateInfo samplerInfo{};
@@ -47,6 +45,10 @@ void dae::Texture::Init(const Device& device, uint32_t width, uint32_t height, V
 				m_Sampler = VK_NULL_HANDLE;
 			});
 	}
+
+	// Initialize the image and view
+	m_Image.Init(device, width, height, format, usage, VK_IMAGE_ASPECT_COLOR_BIT, mipLevels);
+	m_DeletionQueue.PushDeleter(m_Image.GetDeletionFlush());
 }
 
 void dae::Texture::InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, VkFormat format, uint32_t maxMipLevels)
@@ -67,6 +69,9 @@ void dae::Texture::InitFromFile(const Device& device, VkCommandPool commandPool,
 		break;
 	case dae::BytesPerPixel::Int_8B:
 		pixelsI16 = stbi_load_16(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
+		break;
+	case dae::BytesPerPixel::Float_8B: //still load as 32 bit float, we'll convert to 16 bit float later
+		pixelsF32 = stbi_loadf(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 		break;
 	case dae::BytesPerPixel::Float_16B:
 		pixelsF32 = stbi_loadf(filepath.string().c_str(), &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
@@ -95,6 +100,18 @@ void dae::Texture::InitFromFile(const Device& device, VkCommandPool commandPool,
 	case dae::BytesPerPixel::Int_8B:
 		LoadPixels(device, commandPool, pixelsI16, texWidth, texHeight, 8);
 		stbi_image_free(pixelsI16);
+		break;
+	case dae::BytesPerPixel::Float_8B:
+		{
+			size_t pixelCount = texWidth * texHeight * 4; // 4 channels
+			std::vector<uint16_t> half(pixelCount);
+			for (size_t i = 0; i < pixelCount; ++i)
+				half[i] = glm::packHalf1x16(pixelsF32[i]);
+
+			stbi_image_free(pixelsF32);
+
+			LoadPixels(device, commandPool, half.data(), texWidth, texHeight, 8);
+		}
 		break;
 	case dae::BytesPerPixel::Float_16B:
 		LoadPixels(device, commandPool, pixelsF32, texWidth, texHeight, 16);
@@ -195,6 +212,9 @@ dae::BytesPerPixel dae::Texture::GetBytesPerPixel(VkFormat format)
 
 	case VK_FORMAT_R16G16B16A16_UNORM:
 		return BytesPerPixel::Int_8B;
+
+	case VK_FORMAT_R16G16B16A16_SFLOAT:
+		return BytesPerPixel::Float_8B;
 
 	case VK_FORMAT_R32G32B32A32_SFLOAT:
 		return BytesPerPixel::Float_16B;

@@ -28,7 +28,7 @@ layout(set = 2, binding = 0) readonly buffer LightBuffer
     GPULight lights[];
 } lightBuffer;
 
-layout(set = 3, binding = 0) uniform samplerCube skyBox;
+layout(set = 3, binding = 0) uniform samplerCube IBLDiffuse;
 
 layout(location = 0) out vec4 outColor;
 
@@ -37,7 +37,10 @@ layout(location = 0) out vec4 outColor;
 //==================
 
 const float PI = 3.14159265359;
+
+//constants that could also be implemented later on as parameters from the cpu
 const float AO = 1.0; // constant ambient occlusion
+const float EXPOSURECOMPENSATION = 0.5; // for IBL diffuse
 
 //==================
 // Normal Decoding
@@ -84,16 +87,31 @@ vec3 TransformDirectionToCubeMap(in vec3 dir)
     return transformedDir;
 }
 
+// ==================
+// Sample logic
+// ==================
+
+vec3 SampleIBL_Diffuse(in vec3 nomralWS, in float environmentIntensity)
+{
+    const vec3 prefilteredDiffuseIrradiance = texture(IBLDiffuse
+    , TransformDirectionToCubeMap(nomralWS)).rgb;
+
+    const vec3 exposedPrefilteredDiffuseIrradianc = prefilteredDiffuseIrradiance * environmentIntensity;
+    return exposedPrefilteredDiffuseIrradianc;
+}
+
 //==================
 // Lighting functions (declarations)
 //==================
 
 vec3 KelvinToRgb(in float kelvin);
 
-vec3 fresnelSchlick(float cosTheta, vec3 F0);
+vec3 FresnelSchlick(float cosTheta, vec3 F0);
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness);
 float DistributionGGX(vec3 N, vec3 H, float roughness);
-float GeometrySchlickGGX(float NdotV, float roughness);
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness);
+//float GeometrySchlickGGX(float NdotV, float roughness); //not used directly in main
+float GeometrySmith_Direct(vec3 N, vec3 V, vec3 L, float roughness);
+float GeometrySmith_Indirect(vec3 N, vec3 V, vec3 L, float roughness);
 
 //==================
 // Main
@@ -101,6 +119,9 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness);
 
 void main()
 {
+    //================================
+    // Raw GBuffer Tests
+
     //albedo
     //vec4 albedo = texture(gAlbedo, fragUV);
     //outColor = vec4(albedo.rgb, 1.0);
@@ -108,7 +129,7 @@ void main()
     //normal
     //vec4 normal = texture(gNormal, fragUV);
     //vec3 worldNormal = DecodeNormal(normal.xy);
-    //outColor = vec4(worldNormal, 1.f);
+    // outColor = vec4(worldNormal, 1.f);
 
     //metalness
     //vec4 albedo = texture(gMaterial, fragUV);
@@ -129,6 +150,9 @@ void main()
 
     ///*
 
+    //================================
+    // PBR Lighting
+
     vec4 albedoSample = texture(gAlbedo, fragUV);
     //vec4 albedoSample = texelFetch(gAlbedo, ivec2(gl_FragCoord.xy), 0);
     vec4 normalSample = texture(gNormal, fragUV);
@@ -148,14 +172,16 @@ void main()
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
     vec3 Lo = vec3(0.0);
 
-    if(depth >= 1.0)
-    {
-        outColor = texture(skyBox, TransformDirectionToCubeMap(-V));
-        return;
-    }
+    //Skybox test
+    //if(depth >= 1.0)
+    //{
+        //skybox
+        //outColor = texture(IBLDiffuse, TransformDirectionToCubeMap(-V));
+        //return;
+    //}
+    
 
-
-    for(int i = 0; i < sceneData.lightCount; ++i) //todo: loop over actual lights
+    for(int i = 0; i < sceneData.lightCount; ++i)
     {
         float illuminance;
         vec3 L;
@@ -181,11 +207,9 @@ void main()
 
         vec3 H = normalize(V + L);
 
-        vec3 radiance = irradiance;// / PI; //todo determine correct approach
-
         float NDF = DistributionGGX(N, H, roughness);        
-        float G = GeometrySmith(N, V, L, roughness);      
-        vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+        float G = GeometrySmith_Direct(N, V, L, roughness);      
+        vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
         vec3 kS = F;
         vec3 kD = vec3(1.0) - kS;
@@ -196,20 +220,31 @@ void main()
         vec3 specular = numerator / denominator;
 
         float NdotL = max(dot(N, L), 0.0);                
-        Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+        Lo += (kD * albedo / PI + specular) * irradiance * NdotL;
     }
 
-    vec3 ambient = vec3(0.01) * albedo * AO;
-    vec3 color = Lo;// ambient + Lo;
+    //IBL
+    vec3 ambient = vec3(0.0);
+    {
+        vec3 F = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+        vec3 kS = F;
+        vec3 kD = 1.0 - kS;
+        kD *= 1.0 - metallic;
 
-    //color = color / (color + vec3(1.0));
-    //color = pow(color, vec3(1.0 / 2.2)); gamma correction
+        const vec3 prefilteredDiffuseIrradiance = SampleIBL_Diffuse(N, 1.0); //todo, add environment intensity functionality
+        const vec3 diffuse = prefilteredDiffuseIrradiance * albedo;
+
+        //ambient = prefilteredDiffuseIrradiance * kD; //test the diffuse part of IBL only
+        ambient = kD * diffuse * EXPOSURECOMPENSATION;
+    }
+    
+    vec3 color = ambient + Lo;
 
     outColor = vec4(color, 1.0);
     //*/
 }
 
-//based on the slides, move to cpu
+//based on the slides, moved to cpu due to unnecessary calculations
 vec3 KelvinToRgb(in float kelvin)
 {
     const float temp = kelvin / 100.0f;
@@ -234,10 +269,15 @@ vec3 KelvinToRgb(in float kelvin)
     return vec3(r, g, b);
 }
 
-vec3 fresnelSchlick(float cosTheta, vec3 F0)
+vec3 FresnelSchlick(float cosTheta, vec3 F0)
 {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }  
+
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
+{
+    return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
 
 float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
@@ -253,7 +293,7 @@ float DistributionGGX(vec3 N, vec3 H, float roughness)
     return num / denom;
 }
 
-float GeometrySchlickGGX(float NdotV, float roughness)
+float GeometrySchlickGGX_Direct(float NdotV, float roughness)
 {
     float r = (roughness + 1.0);
     float k = (r*r) / 8.0;
@@ -264,12 +304,33 @@ float GeometrySchlickGGX(float NdotV, float roughness)
     return num / denom;
 }
 
-float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
+float GeometrySchlickGGX_Indirect(float NdotV, float roughness)
+{
+    float a = roughness;
+    float k = (a * a) / 2.0;
+
+    float num = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
+
+    return num / denom;
+}
+
+float GeometrySmith_Direct(vec3 N, vec3 V, vec3 L, float roughness)
 {
     float NdotV = max(dot(N, V), 0.0);
     float NdotL = max(dot(N, L), 0.0);
-    float ggx2  = GeometrySchlickGGX(NdotV, roughness);
-    float ggx1  = GeometrySchlickGGX(NdotL, roughness);
+    float ggx2  = GeometrySchlickGGX_Direct(NdotV, roughness);
+    float ggx1  = GeometrySchlickGGX_Direct(NdotL, roughness);
+	
+    return ggx1 * ggx2;
+}
+
+float GeometrySmith_Indirect(vec3 N, vec3 V, vec3 L, float roughness)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2  = GeometrySchlickGGX_Indirect(NdotV, roughness);
+    float ggx1  = GeometrySchlickGGX_Indirect(NdotL, roughness);
 	
     return ggx1 * ggx2;
 }

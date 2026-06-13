@@ -195,13 +195,18 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 	//auto& dLight = m_DirectionalLights.emplace_back();
 	////sun light
 	//dLight.dir = glm::vec3(0.f, -1.f, 0.f); // Directional light pointing downwards
-	//dLight.lux = 10; 
-	//dLight.temperature = 2700; // Daylight temperature
+	//dLight.lux = 20; 
+	//dLight.temperature = 4700; 
 
 	auto& pLight1 = m_PointLights.emplace_back();
 	pLight1.pos = glm::vec3(3.f, 1.f, 0.f);
-	pLight1.lumen = 350.f;
-	pLight1.temperature = 2700; // Daylight temperature
+	pLight1.lumen = 400.f;
+	pLight1.temperature = 2700; 
+
+	//auto& pLight2 = m_PointLights.emplace_back();
+	//pLight2.pos = glm::vec3(-3.f, 1.f, 0.f);
+	//pLight2.lumen = 500.f;
+	//pLight2.temperature = 8700;
 
 	//adjust camera, indoor settings from slides
 	m_Camera.SetAperture(1.4f);

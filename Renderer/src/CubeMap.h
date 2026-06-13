@@ -34,12 +34,15 @@ namespace dae
 			, VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT, VkImageAspectFlags aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT);
 			*/
 		
-		void RenderFromImage(const Device& device, VkCommandPool commandPool, const Image& sourceImage
+		void RenderFromImage(const Device& device, VkCommandPool commandPool, VkImageView sourceView, VkImageLayout sourceLayout
 			, const std::filesystem::path& vertexShaderPath, const std::filesystem::path& fragmentShaderPath);
 
-		void TransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout, std::optional<VkPipelineStageFlags2> destinationFlags, std::optional<VkAccessFlags2> destinationAccessMask);
+		void TransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout
+			, std::optional<VkPipelineStageFlags2> destinationFlags, std::optional<VkAccessFlags2> destinationAccessMask, int mipLevel = -1); //-1 = all levels
 
+		VkImage GetImage() const { return m_Image; }
 		VkImageView GetImageView() const { return m_MainImageView; }
+		VkImageLayout GetCurrentLayout() const { return m_CurrentLayout; }
 		VkSampler GetSampler() const { return m_Sampler; }
 
 		std::function<void()> GetDeletionFlush();

@@ -59,7 +59,7 @@ void dae::CubeMap::Init(const Device& device, uint32_t resolution, VkFormat form
 	CreateSampler(device);
 }
 
-void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPool, const Image& sourceImage, const std::filesystem::path& vertexShaderPath, const std::filesystem::path& fragmentShaderPath)
+void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPool, VkImageView sourceView, VkImageLayout sourceLayout, const std::filesystem::path& vertexShaderPath, const std::filesystem::path& fragmentShaderPath)
 {
 	DeletionQueue functionDeletionQueue{};
 
@@ -138,6 +138,8 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 	samplerInfo.magFilter = VK_FILTER_LINEAR;
 	samplerInfo.minFilter = VK_FILTER_LINEAR;
+	samplerInfo.minLod = 0.0f;
+	samplerInfo.maxLod = VK_LOD_CLAMP_NONE;
 	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -223,8 +225,8 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 
 	// write HDRI image into descriptor set
 	VkDescriptorImageInfo imageInfo{};
-	imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	imageInfo.imageView = sourceImage.GetImageView();
+	imageInfo.imageLayout = sourceLayout;
+	imageInfo.imageView = sourceView;
 	imageInfo.sampler = hdriSampler;
 
 	VkWriteDescriptorSet write{};
@@ -322,7 +324,7 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 		vkCmdPushConstants(commandBuffer, pipeline.GetPipelineLayout(),
 			VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ConversionPushConstants), &pushConstants);
 
-		vkCmdDraw(commandBuffer, 36, 1, 0, 0); // fullscreen triangle
+		vkCmdDraw(commandBuffer, 36, 1, 0, 0); // unit cube
 		vkCmdEndRendering(commandBuffer);
 
 	}
@@ -333,6 +335,11 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 		VK_ACCESS_2_TRANSFER_READ_BIT);
 
 	GenerateMipmaps(commandBuffer);
+
+	// Final transition (must outside the mipmaps in case miplevel = 1)
+	TransitionLayout(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+		VK_ACCESS_2_SHADER_READ_BIT);
 
 	vkEndCommandBuffer(commandBuffer);
 
@@ -348,8 +355,12 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 	vkQueueWaitIdle(graphicsQueue);
 }
 
-void dae::CubeMap::TransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout, std::optional<VkPipelineStageFlags2> destinationFlags, std::optional<VkAccessFlags2> destinationAccessMask)
+// miplevel = -1 means all levels, otherwise only the specified level
+void dae::CubeMap::TransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout, std::optional<VkPipelineStageFlags2> destinationFlags, std::optional<VkAccessFlags2> destinationAccessMask, int mipLevel)
 {
+	uint32_t baseMip = (mipLevel == -1) ? 0 : mipLevel;
+	uint32_t mipCount = (mipLevel == -1) ? m_MipLevels : 1;
+
 	//if the new stage and access mask are not specified, we will use the current ones
 	VkPipelineStageFlags2 dstStageMask = destinationFlags.has_value() ? destinationFlags.value() : m_CurrentStage;
 	VkAccessFlags2 dstAccessMask = destinationAccessMask.has_value() ? destinationAccessMask.value() : m_CurrentAccessMask;
@@ -369,8 +380,8 @@ void dae::CubeMap::TransitionLayout(VkCommandBuffer cmd, VkImageLayout newLayout
 
 	barrier.image = m_Image;
 	barrier.subresourceRange.aspectMask = m_AspectFlags;
-	barrier.subresourceRange.baseMipLevel = 0;
-	barrier.subresourceRange.levelCount = m_MipLevels;
+	barrier.subresourceRange.baseMipLevel = baseMip;
+	barrier.subresourceRange.levelCount = mipCount;
 	barrier.subresourceRange.baseArrayLayer = 0;
 	barrier.subresourceRange.layerCount = 6;
 
@@ -470,81 +481,98 @@ void dae::CubeMap::GenerateMipmaps(VkCommandBuffer cmd)
 
 	int32_t mipRes = m_Resolution;
 
-	for (uint32_t i = 1; i < m_MipLevels; ++i)
+	for (uint32_t mip = 1; mip < m_MipLevels; ++mip)
 	{
-		uint32_t dstSize = std::max(1u, m_Resolution >> i);
+		uint32_t dstSize = std::max(1u, m_Resolution >> mip);
 
-		// 1. Transition source mip (previous) to TRANSFER_SRC if needed
-		if (i > 1)
+		for (uint32_t face = 0; face < 6; ++face)
 		{
-			VkImageMemoryBarrier2 barrier{};
-			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-			barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-			barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-			barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-			barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-			barrier.image = m_Image;
-			barrier.subresourceRange.aspectMask = m_AspectFlags;
-			barrier.subresourceRange.baseMipLevel = i - 1;
-			barrier.subresourceRange.levelCount = 1;
-			barrier.subresourceRange.baseArrayLayer = 0;
-			barrier.subresourceRange.layerCount = 6;
+			// Transition previous mip to SRC
+			if (mip > 1)
+			{
+				VkImageMemoryBarrier2 barrier{};
+				barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+				barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+				barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				barrier.image = m_Image;
+				barrier.subresourceRange.aspectMask = m_AspectFlags;
+				barrier.subresourceRange.baseMipLevel = mip - 1;
+				barrier.subresourceRange.levelCount = 1;
+				barrier.subresourceRange.baseArrayLayer = face;
+				barrier.subresourceRange.layerCount = 1;
 
-			VkDependencyInfo depInfo{ .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier };
-			vkCmdPipelineBarrier2(cmd, &depInfo);
+				VkDependencyInfo depInfo{};
+				depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+				depInfo.imageMemoryBarrierCount = 1;
+				depInfo.pImageMemoryBarriers = &barrier;
+
+				vkCmdPipelineBarrier2(cmd, &depInfo);
+			}
+
+			// Transition destination mip to DST
+			{
+				VkImageMemoryBarrier2 barrier{};
+				barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+				barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+				barrier.srcAccessMask = 0;
+				barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+				barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+				barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				barrier.image = m_Image;
+				barrier.subresourceRange.aspectMask = m_AspectFlags;
+				barrier.subresourceRange.baseMipLevel = mip;
+				barrier.subresourceRange.levelCount = 1;
+				barrier.subresourceRange.baseArrayLayer = face;
+				barrier.subresourceRange.layerCount = 1;
+
+				VkDependencyInfo depInfo{};
+				depInfo.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+				depInfo.imageMemoryBarrierCount = 1;
+				depInfo.pImageMemoryBarriers = &barrier;
+
+				vkCmdPipelineBarrier2(cmd, &depInfo);
+			}
+
+			// Blit one face
+			VkImageBlit2 blit{};
+			blit.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
+
+			blit.srcOffsets[0] = { 0, 0, 0 };
+			blit.srcOffsets[1] = { mipRes, mipRes, 1 };
+			blit.srcSubresource.aspectMask = m_AspectFlags;
+			blit.srcSubresource.mipLevel = mip - 1;
+			blit.srcSubresource.baseArrayLayer = face;
+			blit.srcSubresource.layerCount = 1;
+
+			blit.dstOffsets[0] = { 0, 0, 0 };
+			blit.dstOffsets[1] =
+			{
+				static_cast<int32_t>(dstSize),
+				static_cast<int32_t>(dstSize),
+				1
+			};
+			blit.dstSubresource.aspectMask = m_AspectFlags;
+			blit.dstSubresource.mipLevel = mip;
+			blit.dstSubresource.baseArrayLayer = face;
+			blit.dstSubresource.layerCount = 1;
+
+			VkBlitImageInfo2 blitInfo{};
+			blitInfo.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
+			blitInfo.srcImage = m_Image;
+			blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+			blitInfo.dstImage = m_Image;
+			blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+			blitInfo.regionCount = 1;
+			blitInfo.pRegions = &blit;
+			blitInfo.filter = VK_FILTER_LINEAR;
+
+			vkCmdBlitImage2(cmd, &blitInfo);
 		}
-
-		// 2. Transition destination mip to TRANSFER_DST
-		{
-			VkImageMemoryBarrier2 barrier{};
-			barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-			barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-			barrier.srcAccessMask = 0;
-			barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-			barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-			barrier.image = m_Image;
-			barrier.subresourceRange.aspectMask = m_AspectFlags;
-			barrier.subresourceRange.baseMipLevel = i;
-			barrier.subresourceRange.levelCount = 1;
-			barrier.subresourceRange.baseArrayLayer = 0;
-			barrier.subresourceRange.layerCount = 6;
-
-			VkDependencyInfo depInfo{ .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier };
-			vkCmdPipelineBarrier2(cmd, &depInfo);
-		}
-
-		// Blit from mip (i-1) to mip i (all faces)
-		VkImageBlit2 blit{};
-		blit.sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2;
-		blit.srcOffsets[0] = { 0, 0, 0 };
-		blit.srcOffsets[1] = { mipRes, mipRes, 1 };
-		blit.srcSubresource.aspectMask = m_AspectFlags;
-		blit.srcSubresource.mipLevel = i - 1;
-		blit.srcSubresource.baseArrayLayer = 0;
-		blit.srcSubresource.layerCount = 6;
-
-		blit.dstOffsets[0] = { 0, 0, 0 };
-		blit.dstOffsets[1] = { static_cast<int32_t>(dstSize), static_cast<int32_t>(dstSize), 1 };
-		blit.dstSubresource.aspectMask = m_AspectFlags;
-		blit.dstSubresource.mipLevel = i;
-		blit.dstSubresource.baseArrayLayer = 0;
-		blit.dstSubresource.layerCount = 6;
-
-		VkBlitImageInfo2 blitInfo{};
-		blitInfo.sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2;
-		blitInfo.srcImage = m_Image;
-		blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		blitInfo.dstImage = m_Image;
-		blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		blitInfo.regionCount = 1;
-		blitInfo.pRegions = &blit;
-		blitInfo.filter = VK_FILTER_LINEAR;
-
-		vkCmdBlitImage2(cmd, &blitInfo);
 
 		mipRes = dstSize;
 	}
@@ -568,10 +596,5 @@ void dae::CubeMap::GenerateMipmaps(VkCommandBuffer cmd)
 		VkDependencyInfo depInfo{ .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier };
 		vkCmdPipelineBarrier2(cmd, &depInfo);
 	}
-
-	// Final transition
-	TransitionLayout(cmd, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-		VK_ACCESS_2_SHADER_READ_BIT);
 }
 

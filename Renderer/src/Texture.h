@@ -11,6 +11,7 @@ namespace dae
 	{
 		Int_4B,
 		Int_8B,
+		Float_8B,
 		Float_16B
 	};
 
