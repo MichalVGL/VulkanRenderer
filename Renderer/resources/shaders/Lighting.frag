@@ -130,8 +130,11 @@ void main()
     ///*
 
     vec4 albedoSample = texture(gAlbedo, fragUV);
+    //vec4 albedoSample = texelFetch(gAlbedo, ivec2(gl_FragCoord.xy), 0);
     vec4 normalSample = texture(gNormal, fragUV);
+    //vec4 normalSample = texelFetch(gNormal, ivec2(gl_FragCoord.xy), 0);
     vec4 materialSample = texture(gMaterial, fragUV);
+    //vec4 materialSample = texelFetch(gMaterial, ivec2(gl_FragCoord.xy), 0);
     float depth = texelFetch(gDepth, ivec2(gl_FragCoord.xy), 0).r;
 
     vec3 albedo = albedoSample.rgb;
