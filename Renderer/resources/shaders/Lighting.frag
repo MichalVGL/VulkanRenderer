@@ -45,7 +45,7 @@ layout(location = 0) out vec4 outColor;
 const float PI = 3.14159265359;
 
 //constants that could also be implemented later on as parameters from the cpu
-const float AO = 1.0; // constant ambient occlusion
+//const float AO = 1.0; // constant ambient occlusion
 const float EXPOSURECOMPENSATION = 0.5; // for IBL diffuse
 
 //==================
@@ -98,9 +98,9 @@ vec3 GetShadowUV(in GPULight light, in vec3 worldPos)
     vec4 lightSpacePosition = light.lightProj * light.lightView * vec4(worldPos, 1.0);
     lightSpacePosition.xyz /= lightSpacePosition.w;
     vec2 shadowMapUV = lightSpacePosition.xy * 0.5 + 0.5; 
-    shadowMapUV.y = 1.0 - shadowMapUV.y;
+    //shadowMapUV.y = 1.0 - shadowMapUV.y; //arlready flipped in light view matrix, so not needed here
     
-    return vec3(shadowMapUV, lightSpacePosition.z);
+    return vec3(shadowMapUV, lightSpacePosition.z); // add bias to prevent shadow acne
 }
 
 // ==================
@@ -164,18 +164,25 @@ void main()
     //vec3 worldNormal = DecodeNormal(normal.xy);
     //outColor = vec4(worldNormal.r, worldNormal.r, worldNormal.r, 1.f);
 
+    //================================
+    // Single directional light with shadow mapping test
+    /*
     float depth = texelFetch(gDepth, ivec2(gl_FragCoord.xy), 0).r;
+    vec4 normalSample = texture(gNormal, fragUV);
+    vec3 GeoNormal = DecodeNormal(normalSample.zw);
     vec3 worldPos = ReconstructWorldPos(depth);
 
     GPULight light = lightBuffer.lights[0];
     //vec3 shadowUV = GetShadowUV(light, worldPos);
     //float shadowDepth = texture(DirectionalShadowMaps[0], shadowUV).r;
 
+    vec3 L = normalize(-light.posDir.xyz);
+
+    const float NdotL = max(dot(GeoNormal, L), 0.0);
     float shadowTerm = 1.0;
+    vec3 shadowUV = GetShadowUV(light, worldPos + GeoNormal * 0.01); //add a small bias in case the normal is perpendicular to the surface (causes floating precision issues)
 
-    vec3 shadowUV = GetShadowUV(light, worldPos);
-
-    // bounds check — outside frustum = lit
+    bounds check — outside frustum = lit
     if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 &&
         shadowUV.y >= 0.0 && shadowUV.y <= 1.0 &&
         shadowUV.z >= 0.0 && shadowUV.z <= 1.0)
@@ -183,9 +190,12 @@ void main()
         // sampler2DShadow + vec3 UV → hardware does depth compare + PCF
         shadowTerm = texture(DirectionalShadowMaps[nonuniformEXT(light.depthIndex)], shadowUV);
     }
+    shadowTerm *= smoothstep(0.0f, 0.2f, NdotL);
 
     outColor = vec4(vec3(shadowTerm), 1.0);
-    /*
+
+    //*/
+    ///*
 
     //================================
     // PBR Lighting
@@ -202,9 +212,10 @@ void main()
     float roughness = materialSample.g;  // adjust channels to match your GBuffer layout
     float metallic = materialSample.b;
 
-    vec3 N = DecodeNormal(normalSample.rg);
-    vec3 worldPos = ReconstructWorldPos(depth);
-    vec3 V = normalize(sceneData.cameraPos.xyz - worldPos);
+    vec3 N          = DecodeNormal(normalSample.rg); // shading normal (normal mapped from material)
+    vec3 GeoN       = DecodeNormal(normalSample.zw); // geometric normal
+    vec3 worldPos   = ReconstructWorldPos(depth);
+    vec3 V          = normalize(sceneData.cameraPos.xyz - worldPos);
     
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
     vec3 Lo = vec3(0.0);
@@ -240,6 +251,23 @@ void main()
             illuminance = luminousIntensity * attenuation;
         }
 
+        // shadow — only for directional lights for now
+        float shadowTerm = 1.0;
+        if (lightBuffer.lights[i].posDir.w < 0.0)
+        {
+            float NdotL = max(dot(GeoN, L), 0.0);
+            vec3 shadowUV = GetShadowUV(lightBuffer.lights[i], worldPos + GeoN * 0.01);
+
+            if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 &&
+                shadowUV.y >= 0.0 && shadowUV.y <= 1.0 &&
+                shadowUV.z >= 0.0 && shadowUV.z <= 1.0)
+            {
+                shadowTerm = texture(DirectionalShadowMaps[nonuniformEXT(lightBuffer.lights[i].depthIndex)], shadowUV);
+            }
+
+            shadowTerm *= smoothstep(0.0, 0.2, NdotL);
+        }
+
         const vec3 irradiance = lightBuffer.lights[i].color.rgb * illuminance;
 
         vec3 H = normalize(V + L);
@@ -257,7 +285,7 @@ void main()
         vec3 specular = numerator / denominator;
 
         float NdotL = max(dot(N, L), 0.0);                
-        Lo += (kD * albedo / PI + specular) * irradiance * NdotL;
+        Lo += (kD * albedo / PI + specular) * irradiance * NdotL * shadowTerm;
     }
 
     //IBL
@@ -268,7 +296,7 @@ void main()
         vec3 kD = 1.0 - kS;
         kD *= 1.0 - metallic;
 
-        const vec3 prefilteredDiffuseIrradiance = SampleIBL_Diffuse(N, 1.0); //todo, add environment intensity functionality
+        const vec3 prefilteredDiffuseIrradiance = SampleIBL_Diffuse(N, 1.0); //todo, add environment intensity functionality (if needed)
         const vec3 diffuse = prefilteredDiffuseIrradiance * albedo;
 
         //ambient = prefilteredDiffuseIrradiance * kD; //test the diffuse part of IBL only
@@ -281,7 +309,7 @@ void main()
     //*/
 }
 
-//based on the slides, moved to cpu due to unnecessary calculations
+//based on the slides, moved to cpu due to unnecessary calculations (not used here)
 vec3 KelvinToRgb(in float kelvin)
 {
     const float temp = kelvin / 100.0f;

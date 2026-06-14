@@ -54,6 +54,8 @@ namespace dae
 		void InitializeIBL();
 		void DeleteResources();
 
+		void RecreateSwapchainResources();
+
 		VkRenderingAttachmentInfo MakeColorAttachment(VkImageView view);
 		VkRenderingAttachmentInfo MakeDepthAttachment(VkImageView view, bool clearImageOnLoad, bool storeImage, VkImageLayout layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 		void SetViewportScissor(VkCommandBuffer cmd);

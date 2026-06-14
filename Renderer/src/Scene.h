@@ -53,6 +53,9 @@ namespace dae
 
     private:
 
+        void SetupCamera();
+        void CreateLights();
+
 		void ProcessMaterials(const aiScene* aiScenePtr, const Renderer& renderer, const std::filesystem::path& rootFilePath);
         Mesh* ProcessMesh(aiMesh* aiMeshPtr, const aiMatrix4x4& rootTransform, const Device& device, VkCommandPool commandPool, VkQueue graphicsQueue);
         void ProcessNode(aiNode* aiNodePtr, const aiScene* aiScenePtr, const glm::mat4x4& parentTransform);

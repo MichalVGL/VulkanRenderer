@@ -310,7 +310,7 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& cu
 	);
 	proj[1][1] *= -1;
 
-	SceneData sceneData{};
+	SceneData sceneData{}; //todo, delete view and proj from scene data, they are not used in the shaders, only the viewproj is used
 	sceneData.view = view;
 	sceneData.proj = proj;
 	sceneData.viewProj = proj * view;
@@ -497,6 +497,31 @@ void dae::Renderer::CreateLayoutBindings()
 
 void dae::Renderer::CreateSamplers()
 {
+	//===================================
+	//Shared GBuffer Sampler 
+
+	VkSamplerCreateInfo samplerInfo{};
+	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerInfo.magFilter = VK_FILTER_NEAREST;
+	samplerInfo.minFilter = VK_FILTER_NEAREST;
+	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerInfo.anisotropyEnable = VK_FALSE;
+
+	if (vkCreateSampler(m_Device.GetLogicalDevice(), &samplerInfo, nullptr, &m_GBufferSampler) != VK_SUCCESS)
+	{
+		throw std::runtime_error("[Renderer] failed to create GBuffer sampler!");
+	}
+	else
+	{
+		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+			{
+				vkDestroySampler(logicalDevice, m_GBufferSampler, nullptr);
+				m_GBufferSampler = VK_NULL_HANDLE;
+			});
+	}
+
 	//=========================
 	// Shadow sampler
 	{
@@ -504,15 +529,15 @@ void dae::Renderer::CreateSamplers()
 		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 		samplerInfo.magFilter = VK_FILTER_LINEAR;
 		samplerInfo.minFilter = VK_FILTER_LINEAR;
-		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		//samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-		samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;      
+		//samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;      
 		samplerInfo.compareEnable = VK_TRUE;                               
 		samplerInfo.compareOp = VK_COMPARE_OP_LESS;
-		samplerInfo.minLod = 0.0f;
-		samplerInfo.maxLod = 1.0f;
+		//samplerInfo.minLod = 0.0f;
+		//samplerInfo.maxLod = 1.0f;
 		vkCreateSampler(m_Device.GetLogicalDevice(), &samplerInfo, nullptr, &m_ShadowSampler);
 		m_DeletionQueue.PushDeleter([this]()
 			{
@@ -537,7 +562,7 @@ void dae::Renderer::InitializeImages()
 
 	// Normal image
 	m_NormalImage.Init(m_Device, extent.width, extent.height,
-		VK_FORMAT_R16G16_UNORM,
+		VK_FORMAT_R16G16B16A16_UNORM,
 		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, 1);
 	m_DeletionQueue.PushDeleter(m_NormalImage.GetDeletionFlush());
@@ -675,31 +700,6 @@ void dae::Renderer::CreateCommandPool()
 
 void dae::Renderer::InitializeGBufferDescriptors()
 {
-	//===================================
-	//Shared GBuffer Sampler 
-
-	VkSamplerCreateInfo samplerInfo{};
-	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	samplerInfo.magFilter = VK_FILTER_NEAREST;
-	samplerInfo.minFilter = VK_FILTER_NEAREST;
-	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	samplerInfo.anisotropyEnable = VK_FALSE;
-
-	if (vkCreateSampler(m_Device.GetLogicalDevice(), &samplerInfo, nullptr, &m_GBufferSampler) != VK_SUCCESS)
-	{
-		throw std::runtime_error("[Renderer] failed to create GBuffer sampler!");
-	}
-	else
-	{
-		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
-			{
-				vkDestroySampler(logicalDevice, m_GBufferSampler, nullptr);
-				m_GBufferSampler = VK_NULL_HANDLE;
-			});
-	}
-
 	//===================================
 	// Descriptor Pool
 
@@ -1026,6 +1026,41 @@ void dae::Renderer::InitializeIBL()
 void dae::Renderer::DeleteResources()
 {
 	m_DeletionQueue.Flush();
+}
+
+void dae::Renderer::RecreateSwapchainResources()
+{
+	/*
+	// Handle minimization - wait until window has size again
+	int width = 0, height = 0;
+	m_pWindow->GetFramebufferSize(&width, &height);
+	while (width == 0 || height == 0) {
+		m_pWindow->GetFramebufferSize(&width, &height);
+		glfwWaitEvents();
+	}
+
+	vkDeviceWaitIdle(m_Device.GetLogicalDevice());
+
+	// Destroy only extent-dependent resources, in reverse order
+	vkDestroyDescriptorPool(m_Device.GetLogicalDevice(), m_GBufferDescriptorPool, nullptr);
+	vkDestroyDescriptorPool(m_Device.GetLogicalDevice(), m_HDRDescriptorPool, nullptr);
+	m_GBufferDescriptorPool = VK_NULL_HANDLE;
+	m_HDRDescriptorPool = VK_NULL_HANDLE;
+
+	m_HDRImage.Destroy();
+	m_DepthImage.Destroy();
+	m_MaterialImage.Destroy();
+	m_NormalImage.Destroy();
+	m_AlbedoImage.Destroy();
+
+	m_Swapchain.Destroy(m_Device);
+
+	// Recreate
+	m_Swapchain.Init(m_Device, *m_pWindow, m_MaxFramesInFlight);
+	InitializeImages();       // uses new extent
+	InitializeGBufferDescriptors();
+	InitializeHDRImage();
+	*/
 }
 
 VkRenderingAttachmentInfo dae::Renderer::MakeColorAttachment(VkImageView view)

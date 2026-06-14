@@ -41,45 +41,18 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 	ProcessNode(pScene->mRootNode, pScene, glm::mat4x4(1.0f));
 
 	LoadMaterials(renderer); //load to the gpu
+	
+	SetupCamera();
+	CreateLights();
 
-	// Add a deleter to wait for the GPU to finish before destroying the scene resources
+	LoadLights(renderer); //load to the gpu
+
+	// Add a deleter to wait for the GPU to finish rendering before destroying scene resources
 	m_DeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice()]()
 		{
 			//wait for the GPU to finish before destroying the scene resources
 			vkDeviceWaitIdle(logicalDevice);
 		});
-
-	//Add lights
-	//auto& dLight = m_DirectionalLights.emplace_back();
-	////sun light
-	//dLight.dir = glm::vec3(0.f, -1.f, 0.f); // Directional light pointing downwards
-	//dLight.lux = 20; 
-	//dLight.temperature = 4700; 
-
-	//auto& pLight1 = m_PointLights.emplace_back();
-	//pLight1.pos = glm::vec3(3.f, 1.f, 0.f);
-	//pLight1.lumen = 400.f;
-	//pLight1.temperature = 2700; 
-
-	//auto& pLight2 = m_PointLights.emplace_back();
-	//pLight2.pos = glm::vec3(-3.f, 1.f, 0.f);
-	//pLight2.lumen = 500.f;
-	//pLight2.temperature = 8700;
-
-	//adjust camera, indoor settings from slides
-	m_Camera.SetAperture(1.4f);
-	m_Camera.SetShutterSpeed(1.f / 60.f);
-	m_Camera.SetISO(1600.f);
-	//m_Camera.SetOrigin({ 0.f, 1.f, 5.f });
-
-	auto* pLight = m_Lights.emplace_back(
-		Light::CreateDirectional(glm::normalize(glm::vec3(-1.f, -1.f, -0.4f)), 4096)
-	).get();
-	
-	pLight->SetLumenOrLux(20.f);
-	pLight->SetTemperature(3700.f);
-
-	LoadLights(renderer); //load to the gpu
 }
 
 void dae::Scene::Update(float deltaTime, const InputHandler& input)
@@ -92,6 +65,43 @@ std::function<void()> dae::Scene::GetDeletionFlush()
 	return std::function<void()>(
 		std::bind(&DeletionQueue::Flush, &m_DeletionQueue)
 	);
+}
+
+void dae::Scene::SetupCamera()
+{
+	//adjust camera, indoor settings from slides
+	m_Camera.SetAperture(1.4f);
+	m_Camera.SetShutterSpeed(1.f / 60.f);
+	m_Camera.SetISO(1600.f);
+	m_Camera.SetOrigin({ 0.f, 1.f, 0.f });
+	m_Camera.SetYaw(glm::radians(-90.f));
+}
+
+void dae::Scene::CreateLights()
+{
+	auto* pLight = m_Lights.emplace_back(
+		Light::CreateDirectional(glm::normalize(glm::vec3(0.f, -1.f, 0.f)), 4096)
+	).get();
+
+	pLight->SetLumenOrLux(20.f);
+	pLight->SetTemperature(3700.f);
+	m_DeletionQueue.PushDeleter(pLight->GetDeletionFlush());
+
+	pLight = m_Lights.emplace_back(
+		Light::CreatePoint(glm::vec3(7.f, 1.f, 0.f), 1024) //no shadows implemented
+	).get();
+
+	pLight->SetLumenOrLux(400.f);
+	pLight->SetTemperature(2700.f);
+	m_DeletionQueue.PushDeleter(pLight->GetDeletionFlush());
+
+	pLight = m_Lights.emplace_back(
+		Light::CreatePoint(glm::vec3(-7.f, 1.f, 0.f), 1024) //no shadows implemented
+	).get();
+
+	pLight->SetLumenOrLux(400.f);
+	pLight->SetTemperature(7700.f);
+	m_DeletionQueue.PushDeleter(pLight->GetDeletionFlush());
 }
 
 void dae::Scene::ProcessMaterials(const aiScene* aiScenePtr, const Renderer& renderer, const std::filesystem::path& rootFilePath)
@@ -383,8 +393,11 @@ void dae::Scene::LoadLights(const Renderer& renderer)
 	for (auto& light : m_Lights) {
 		light->Init(renderer, *this); // allocates depth image
 		m_DeletionQueue.PushDeleter(light->GetDeletionFlush());
-		light->SetDepthIndex(static_cast<uint32_t>(shadowViews.size()));
-		shadowViews.push_back(light->GetDepthView());
+		if(light->GetDepthView() != VK_NULL_HANDLE) //if there is a depth view
+		{
+			light->SetDepthIndex(static_cast<uint32_t>(shadowViews.size()));
+			shadowViews.push_back(light->GetDepthView());
+		}
 	}
 
 	// Pool

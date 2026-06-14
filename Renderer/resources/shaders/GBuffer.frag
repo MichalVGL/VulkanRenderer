@@ -20,7 +20,7 @@ layout(set = 0, binding = 0) uniform sampler2D globalTextures[];
 
 //GBuffer
 layout(location = 0) out vec4 outAlbedo;
-layout(location = 1) out vec2 outNormal;    // encoded normal
+layout(location = 1) out vec4 outNormal;    // encoded mapped normal and geometric normal
 layout(location = 2) out vec4 outMaterial;  // unused for now
 
 vec2 OctWrap(vec2 v)
@@ -61,9 +61,8 @@ void main()
 
     vec3 normalSample = texture(globalTextures[nonuniformEXT(push.normalTextureIndex)], fragUV).xyz;
     normalSample = normalize(normalSample * 2.0 - 1.0); // remap from [0,1] to [-1,1]
-    outNormal = EncodeNormal(TBN * normalSample); // octahedral encode
-
-    //outNormal = EncodeNormal(normalize(fragNormal.xyz));
+    outNormal.xy = EncodeNormal(TBN * normalSample); // octahedral encode normal mapped
+    outNormal.zw = EncodeNormal(N); // octahedral encode geometric normal
 
     outMaterial = texture(globalTextures[nonuniformEXT(push.materialTextureIndex)], fragUV);
 }

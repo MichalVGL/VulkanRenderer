@@ -94,9 +94,9 @@ void dae::Light::Init(const Renderer& renderer, const Scene& scene)
 	pipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::None;
 	pipelineInfo.additionalSetLayouts = {};
 	pipelineInfo.depthBiasEnable = true;
-	pipelineInfo.depthBiasConstantFactor = 1.25f;
+	pipelineInfo.depthBiasConstantFactor = 5.25f;
 	pipelineInfo.depthBiasClamp = 0.f;
-	pipelineInfo.depthBiasSlopeFactor = 1.75f;
+	pipelineInfo.depthBiasSlopeFactor = 5.75f;
 
 	Pipeline pipeline{};
 	pipeline.Init(device, pipelineInfo);

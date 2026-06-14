@@ -23,8 +23,8 @@ void main()
 
     // Choose one:
     //color = ReinhardToneMapping(color);
-    color = ACESFilmToneMapping(color * push.exposure);
-    //color = Uncharted2ToneMapping(color);
+    //color = ACESFilmToneMapping(color * push.exposure);
+    color = Uncharted2ToneMapping(color);
 
     outColor = vec4(color, 1.0);
 }
