@@ -12,7 +12,7 @@ int main()
 	
 	// Window
 	dae::Window window{};
-	window.Init({ 1600, 1200 }, "Vulkan Renderer");
+	window.Init({ 1920, 1080 }, "Vulkan Renderer");
 
 	// Input Handler
 	dae::InputHandler inputHandler{ &window };

@@ -69,7 +69,7 @@ namespace dae
 		float m_ISO{ 100.f };	//ISO
 
 		//move controls
-		float m_BaseSpeed{ 8.f };	//wasd
+		float m_BaseSpeed{ 4.f };	//wasd
 		float m_MouseSpeed{ 0.03f };
 		float m_RotationSensitivity{ 0.1f };
 	};
