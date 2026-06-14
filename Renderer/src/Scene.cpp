@@ -48,8 +48,16 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 	LoadLights(renderer); //load to the gpu
 
 	// Add a deleter to wait for the GPU to finish rendering before destroying scene resources
-	m_DeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice()]()
+	m_DeletionQueue.PushDeleter([allocator = device.GetAllocator(), logicalDevice = device.GetLogicalDevice()]()
 		{
+#ifdef DEBUG
+			std::cout << "Vulkan Memory Stats:\n";
+			char* statsString = nullptr;
+			vmaBuildStatsString(allocator, &statsString, VK_TRUE);
+			std::cout << statsString << "\n"; 
+			vmaFreeStatsString(allocator, statsString);
+#endif // DEBUG
+
 			//wait for the GPU to finish before destroying the scene resources
 			vkDeviceWaitIdle(logicalDevice);
 		});

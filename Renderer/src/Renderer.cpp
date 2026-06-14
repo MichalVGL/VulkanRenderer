@@ -20,10 +20,6 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	m_pWindow = pWindow;
 
-	if (m_IsInitialized)
-	{
-	}
-
 	// Device
 	m_Device.Init(*m_pWindow);
 	m_DeletionQueue.PushDeleter(m_Device.GetDeletionFlush());
