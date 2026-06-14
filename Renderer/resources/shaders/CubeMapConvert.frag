@@ -18,7 +18,6 @@ vec2 SampleSphericalMap(in vec3 v)
 void main()
 {
     vec3 dir = normalize(fragLocalPosition);
-    //dir = vec3(dir.z, dir.y, -dir.x); //convert from OpenGL to Vulkan coordinate system
     vec2 uv = SampleSphericalMap(dir);
     outColor = vec4(texture(sphericalMap, uv).rgb, 1.0);
 }

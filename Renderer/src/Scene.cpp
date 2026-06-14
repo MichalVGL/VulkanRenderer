@@ -158,7 +158,7 @@ void dae::Scene::ProcessMaterials(const aiScene* aiScenePtr, const Renderer& ren
 			// Create and load the texture
 			auto pNewTexture = std::make_unique<Texture>();
 
-			pNewTexture->InitFromFile(device, commandPool, fullTexturePath, VK_FORMAT_R16G16B16A16_UNORM); //todo, to VK_FORMAT_R16G16B16A16_UNORM if slider are correct
+			pNewTexture->InitFromFile(device, commandPool, fullTexturePath, VK_FORMAT_R16G16B16A16_UNORM);
 			m_DeletionQueue.PushDeleter(pNewTexture->GetDeletionFlush());
 
 			pNewMaterial->normalTextureIndex = static_cast<uint32_t>(m_Textures.size());
@@ -401,6 +401,11 @@ void dae::Scene::LoadLights(const Renderer& renderer)
 		{
 			light->SetDepthIndex(static_cast<uint32_t>(shadowViews.size()));
 			shadowViews.push_back(light->GetDepthView());
+
+			//if pointlights use a cube map, we need to add 6 views (one for each face)
+			/*
+			*  hold a local counter here and do += 6 for point lights, use that counter as the depth index
+			*/
 		}
 	}
 

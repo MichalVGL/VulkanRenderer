@@ -71,6 +71,12 @@ namespace dae
 			: m_PosOrDir(posOrDir), m_Type(type), m_DepthResolution(shadowResolution) {
 		}
 
+		/*
+			if shadow mapping for point light were to be implemented,
+				return 6 image views of every face so you can use the same array of shadowsamplers as dir lights
+				just make sure to assign "6" indices to the point light and compensate with it in LoadLights() in scene.cpp
+		*/
+
 		//todo, use std::variant for the cubemap if point light supports shadowmapping
 		Image m_DepthImage{};
 		uint32_t m_DepthIndex{ 0u }; // Index in the depth image array for shadow mapping

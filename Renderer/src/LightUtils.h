@@ -29,26 +29,6 @@ namespace dae
 
         return glm::vec3(r, g, b);
     }
-
-    //todo, delete
-    /*
-
-    inline GPULight ConvertPointLight(const CPUPointLight& light)
-    {
-        GPULight gpu{};
-        gpu.posDir = glm::vec4(light.pos, 1.0f);       // w > 0 = point light
-        gpu.color = glm::vec4(KelvinToRgb(light.temperature), light.lumen);
-        return gpu;
-    }
-
-    inline GPULight ConvertDirectionalLight(const CPUDirectionalLight& light)
-    {
-        GPULight gpu{};
-        gpu.posDir = glm::vec4(glm::normalize(light.dir), -1.0f); // w < 0 = directional
-        gpu.color = glm::vec4(KelvinToRgb(light.temperature), light.lux);
-        return gpu;
-    }
-    //*/
 }
 
 #endif

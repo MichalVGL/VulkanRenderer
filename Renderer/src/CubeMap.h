@@ -28,11 +28,6 @@ namespace dae
 		CubeMap& operator=(CubeMap&&) = delete;
 
 		void Init(const Device& device, uint32_t resolution, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspectFlags, uint32_t mipLevels = 999);
-
-		/*
-		void InitFromFile(const Device& device, VkCommandPool commandPool, const std::filesystem::path& filepath, uint32_t resolution = 1024
-			, VkFormat format = VK_FORMAT_R32G32B32A32_SFLOAT, VkImageAspectFlags aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT);
-			*/
 		
 		void RenderFromImage(const Device& device, VkCommandPool commandPool, VkImageView sourceView, VkImageLayout sourceLayout
 			, const std::filesystem::path& vertexShaderPath, const std::filesystem::path& fragmentShaderPath);
@@ -49,15 +44,12 @@ namespace dae
 
 	private:
 
-		//void ConvertHDRIToCubemap(const Device& device, VkCommandPool commandPool, const Image& hdriImage);
 		void CreateSampler(const Device& device);
 		void CreateImageView(const Device& device);
 		void GenerateMipmaps(VkCommandBuffer cmd);
 
 		VkImage m_Image{};
 		VkImageView m_MainImageView{ VK_NULL_HANDLE };
-		//todo, delete
-		//std::array<VkImageView, 6> m_FaceViews{};
 		VkFormat m_Format{};
 		VkImageLayout m_CurrentLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
 		uint32_t m_Resolution{};

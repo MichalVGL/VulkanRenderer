@@ -97,6 +97,29 @@ void dae::Renderer::DrawFrame(const Scene& scene, const Window& window)
 
 	ImageRef& swapImage = m_Swapchain.GetImage(imageIndex);
 
+	//=============================================
+	// Update data to the gpu
+
+	// Scene data
+
+	glm::mat4 view = scene.GetCamera().GetCameraToWorld();
+	glm::mat4 proj = glm::perspective(
+		glm::radians(scene.GetCamera().GetFOV()),
+		static_cast<float>(m_Swapchain.GetExtent().width) / static_cast<float>(m_Swapchain.GetExtent().height),
+		scene.GetCamera().m_Near,
+		scene.GetCamera().m_Far
+	);
+	proj[1][1] *= -1;
+
+	SceneData sceneData{};
+	sceneData.view = view;
+	sceneData.proj = proj;
+	sceneData.viewProj = proj * view;
+	sceneData.cameraPos = glm::vec4(scene.GetCamera().GetOrigin(), 1.0f);
+	sceneData.lightCount = static_cast<uint32_t>(scene.GetLights().size());
+
+	currentFrame.UpdateSceneData(sceneData);
+
 	//==============================
 	// Depth PrePass
 
@@ -206,15 +229,12 @@ void dae::Renderer::DrawFrame(const Scene& scene, const Window& window)
 
 	VkRenderingAttachmentInfo hdrAttachment = MakeColorAttachment(m_HDRImage.GetImageView());
 
-	depthAttachment = MakeDepthAttachment(m_DepthImage.GetImageView(), false, false, VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL); //dont clear depth and dont store it
-
 	VkRenderingInfo lightingRenderingInfo{};
 	lightingRenderingInfo.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
 	lightingRenderingInfo.renderArea = { {0, 0}, m_Swapchain.GetExtent() };
 	lightingRenderingInfo.layerCount = 1;
 	lightingRenderingInfo.colorAttachmentCount = 1;
 	lightingRenderingInfo.pColorAttachments = &hdrAttachment;
-	lightingRenderingInfo.pDepthAttachment = &depthAttachment; //todo, maybe remove
 
 	vkCmdBeginRendering(commandBuffer, &lightingRenderingInfo);
 	SetViewportScissor(commandBuffer);
@@ -313,26 +333,6 @@ std::function<void()> dae::Renderer::GetDeletionFlush()
 
 void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& currentFrame, const Pipeline& pipeline)
 {
-	//todo, move the scenedata building to the drawframe, now it calculates it multiple times due to deferred
-	// build scene data
-	glm::mat4 view = scene.GetCamera().GetCameraToWorld();
-	glm::mat4 proj = glm::perspective(
-		glm::radians(scene.GetCamera().GetFOV()),
-		static_cast<float>(m_Swapchain.GetExtent().width) / static_cast<float>(m_Swapchain.GetExtent().height),
-		scene.GetCamera().m_Near,
-		scene.GetCamera().m_Far
-	);
-	proj[1][1] *= -1;
-
-	SceneData sceneData{}; //todo, delete view and proj from scene data, they are not used in the shaders, only the viewproj is used
-	sceneData.view = view;
-	sceneData.proj = proj;
-	sceneData.viewProj = proj * view;
-	sceneData.cameraPos = glm::vec4(scene.GetCamera().GetOrigin(), 1.0f);
-	sceneData.lightCount = static_cast<uint32_t>(scene.GetLights().size());
-
-	currentFrame.UpdateSceneData(sceneData);
-
 	// set 0 = global descriptor set (textures)
 	VkDescriptorSet globalSet = scene.GetTexturesDescriptorSet();
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS
@@ -691,7 +691,6 @@ void dae::Renderer::InitializePipelines()
 	lightingPipelineInfo.colorAttachmentFormats = { m_HDRImage.GetFormat() };
 	lightingPipelineInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 	lightingPipelineInfo.cullMode = VK_CULL_MODE_NONE;
-	lightingPipelineInfo.depthAttachmentFormat = m_DepthImage.GetFormat(); //todo,, maybe nullptr?
 	lightingPipelineInfo.depthTestEnable = VK_FALSE;
 	lightingPipelineInfo.depthWriteEnable = VK_FALSE;
 	lightingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::GBuffer;
@@ -912,11 +911,8 @@ void dae::Renderer::InitializeHDRDescriptor()
 
 void dae::Renderer::InitializeIBL()
 {
-	// Sky Box
-
 	DeletionQueue functionDeletionQueue{};
 
-	//todo, delete temp
 	Texture tempTexture{};
 	tempTexture.InitFromFile(m_Device, m_CommandPool, "Resources/hdri/circus_arena_4k.hdr", VK_FORMAT_R32G32B32A32_SFLOAT);
 	functionDeletionQueue.PushDeleter(tempTexture.GetDeletionFlush());

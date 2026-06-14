@@ -33,7 +33,6 @@ namespace dae
 
 	struct MeshPushConstants //(mesh info) 
 	{
-		//todo, rename transform
 		glm::mat4 transform{};        // 64 bytes
 		uint64_t vertexBufferAddress{}; // 8 bytes
 		uint32_t albedoTextureIndex{};

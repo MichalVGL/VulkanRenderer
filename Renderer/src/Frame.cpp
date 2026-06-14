@@ -2,6 +2,7 @@
 
 #include "Device.h"
 #include "Swapchain.h"
+#include "Scene.h"
 
 void dae::Frame::Init(const Device& device, VkCommandPool commandPool, VkDescriptorSetLayout sceneDataLayout, VkDescriptorSetLayout lightLayout)
 {
@@ -53,7 +54,7 @@ void dae::Frame::UpdateLights(const std::vector<GPULight>& lights)
 	if (m_LightMapped == nullptr) 
 		return;
 
-	uint32_t count = std::min(static_cast<uint32_t>(lights.size()), m_MaxLights); //clamp to max supported lights
+	uint32_t count = std::min(static_cast<uint32_t>(lights.size()), static_cast<uint32_t>(Scene::MAX_LIGHTS)); //clamp to max supported lights
 	memcpy(m_LightMapped, lights.data(), count * sizeof(GPULight));
 }
 
@@ -251,9 +252,9 @@ void dae::Frame::CreateSceneDataBuffer(const Device& device, VkDescriptorSetLayo
 
 void dae::Frame::CreateLightBuffer(const Device& device, VkDescriptorSetLayout lightLayout)
 {
-	// create SSBO — sized for max lights
+	// create SSBO sized for max lights
 	m_LightBuffer.Init(device,
-		sizeof(GPULight) * m_MaxLights,
+		sizeof(GPULight) * Scene::MAX_LIGHTS,
 		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		VMA_MEMORY_USAGE_CPU_TO_GPU);
 
@@ -299,7 +300,7 @@ void dae::Frame::CreateLightBuffer(const Device& device, VkDescriptorSetLayout l
 	VkDescriptorBufferInfo bufferInfo{};
 	bufferInfo.buffer = m_LightBuffer.GetBuffer();
 	bufferInfo.offset = 0;
-	bufferInfo.range = sizeof(GPULight) * m_MaxLights;
+	bufferInfo.range = sizeof(GPULight) * Scene::MAX_LIGHTS;
 
 	VkWriteDescriptorSet write{};
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

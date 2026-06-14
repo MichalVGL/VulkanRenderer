@@ -22,7 +22,7 @@ void dae::Window::Init(glm::ivec2 size, const std::string& title)
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); //todo, make it resizable
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
 	m_pWindow = GLFWwindowPtr(glfwCreateWindow(size.x, size.y, title.c_str(), nullptr, nullptr));
 	glfwSetWindowUserPointer(m_pWindow.get(), this);

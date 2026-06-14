@@ -79,7 +79,6 @@ namespace dae
 		void* m_LightMapped{ nullptr };
 		VkDescriptorPool m_LightPool{ VK_NULL_HANDLE };
 		VkDescriptorSet m_LightDescriptorSet{ VK_NULL_HANDLE };
-		uint32_t m_MaxLights{ 256 };
 
 		DeletionQueue m_DeletionQueue{};
 	};
