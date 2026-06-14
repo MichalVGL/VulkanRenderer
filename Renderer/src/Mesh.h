@@ -37,6 +37,7 @@ namespace dae
 		const Buffer& GetVertexBuffer() const { return m_VertexBuffer; }
 		const Buffer& GetIndexBuffer() const { return m_IndexBuffer; }
 		const std::vector<Primitive>& GetPrimitives() const { return m_Primitives; }
+		const std::vector<Vertex>& GetVertices() const { return m_Vertices; }
 		VkDeviceAddress GetVertexBufferAddress(const Device& device) const;
 		uint32_t GetIndexCount() const;
 
@@ -46,6 +47,8 @@ namespace dae
 	private:
 		Buffer m_VertexBuffer;
 		Buffer m_IndexBuffer;
+
+		std::vector<Vertex> m_Vertices; //cpu copy
 
 		std::vector<Primitive> m_Primitives;
 

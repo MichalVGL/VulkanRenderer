@@ -35,6 +35,9 @@ namespace dae
 		const Pipeline& GetLightingPipeline() const { return m_LightingPipeline; }
 		VkCommandPool GetCommandPool() const { return m_CommandPool; }
 
+		VkDescriptorSetLayout GetShadowDescriptorSetLayout() const { return m_ShadowLayout; }
+		VkSampler GetShadowSampler() const { return m_ShadowSampler; }
+
 		std::function<void()> GetDeletionFlush();
 
 	private:
@@ -42,6 +45,7 @@ namespace dae
 		void DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& currentFrame, const Pipeline& pipeline);
 
 		void CreateLayoutBindings();
+		void CreateSamplers();
 		void InitializeImages();
 		void InitializePipelines();
 		void CreateCommandPool();
@@ -76,6 +80,10 @@ namespace dae
 
 		//Lights data, only layout here (data is in the frame itself)
 		VkDescriptorSetLayout m_LightLayout{ VK_NULL_HANDLE };
+
+		//Shadow maps data, (from the lights)
+		VkDescriptorSetLayout m_ShadowLayout{ VK_NULL_HANDLE };
+		VkSampler m_ShadowSampler{ VK_NULL_HANDLE };
 
 		// GBuffer
 		dae::Image m_AlbedoImage{};

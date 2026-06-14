@@ -7,6 +7,7 @@
 #include "DeletionQueue.h"
 #include "GraphicsTypes.h"
 #include "Buffer.h"
+#include "Light.h"
 
 namespace dae
 {

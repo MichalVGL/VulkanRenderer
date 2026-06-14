@@ -8,9 +8,20 @@
 #include "Camera.h"
 #include "LightUtils.h"
 #include "CubeMap.h"
+#include "Light.h"
 
 namespace dae
 {
+    struct AABB {
+        glm::vec3 min{ FLT_MAX };
+        glm::vec3 max{ -FLT_MAX };
+
+        void Expand(const glm::vec3& p) {
+            min = glm::min(min, p);
+            max = glm::max(max, p);
+        }
+    };
+
 	class Renderer;
     class Scene final
     {
@@ -28,34 +39,44 @@ namespace dae
         const std::vector<RenderObject>& GetRenderObjects() const { return m_RenderObjects; }
 		const Camera& GetCamera() const { return m_Camera; }
         Camera& GetCamera() { return m_Camera; }
-        VkDescriptorSet& GetDescriptorSet() { return m_DescriptorSet; }
-        const VkDescriptorSet& GetDescriptorSet() const { return m_DescriptorSet; }
-		const std::vector<CPUDirectionalLight>& GetDirectionalLights() const { return m_DirectionalLights; }
-		const std::vector<CPUPointLight>& GetPointLights() const { return m_PointLights; }
+        VkDescriptorSet& GetTexturesDescriptorSet() { return m_TextureDescriptorSet; }
+        const VkDescriptorSet& GetTexturesDescriptorSet() const { return m_TextureDescriptorSet; }
+        VkDescriptorSet& GetShadowDescriptorSet() { return m_ShadowDescriptorSet; }
+        const VkDescriptorSet& GetShadowDescriptorSet() const { return m_ShadowDescriptorSet; }
+		const std::vector<std::unique_ptr<Light>>& GetLights() const { return m_Lights; }
+		AABB GetSceneAABB() const { return m_SceneAABB; }
 
 		std::function<void()> GetDeletionFlush();
 
+        static constexpr int MAX_MATERIALS = 1000;
+        static constexpr int MAX_LIGHTS = 100;
+
     private:
 
-        void ProcessNode(aiNode* aiNodePtr, const aiScene* aiScenePtr, const glm::mat4x4& parentTransform);
+		void ProcessMaterials(const aiScene* aiScenePtr, const Renderer& renderer, const std::filesystem::path& rootFilePath);
         Mesh* ProcessMesh(aiMesh* aiMeshPtr, const aiMatrix4x4& rootTransform, const Device& device, VkCommandPool commandPool, VkQueue graphicsQueue);
+        void ProcessNode(aiNode* aiNodePtr, const aiScene* aiScenePtr, const glm::mat4x4& parentTransform);
 
+		void LoadMaterials(const Renderer& renderer);
+		void LoadLights(const Renderer& renderer);
 		void CreateDefaultTextures(const Device& device, VkCommandPool commandPool);
 
-        std::vector<std::unique_ptr<Mesh>> m_Meshes;
-        std::vector<std::unique_ptr<Texture>> m_Textures;
-        std::vector<std::unique_ptr<Material>> m_Materials;
-        std::vector<RenderObject> m_RenderObjects;
+        std::vector<std::unique_ptr<Mesh>> m_Meshes{};
+        std::vector<std::unique_ptr<Texture>> m_Textures{};
+        std::vector<std::unique_ptr<Material>> m_Materials{};
+        std::vector<RenderObject> m_RenderObjects{};
 
-        VkDescriptorPool m_DescriptorPool{ VK_NULL_HANDLE };
-        VkDescriptorSet m_DescriptorSet{ VK_NULL_HANDLE };
+		AABB m_SceneAABB{};
 
-        //todo, add skybox and IBL here
+        VkDescriptorPool m_TextureDescriptorPool{ VK_NULL_HANDLE };
+        VkDescriptorSet m_TextureDescriptorSet{ VK_NULL_HANDLE };
 
 		Camera m_Camera{};
 
-        std::vector<CPUDirectionalLight> m_DirectionalLights{};
-        std::vector<CPUPointLight> m_PointLights{};
+        std::vector<std::unique_ptr<Light>> m_Lights{};
+
+        VkDescriptorPool m_ShadowDescriptorPool{ VK_NULL_HANDLE };
+        VkDescriptorSet m_ShadowDescriptorSet{ VK_NULL_HANDLE };
 
         DeletionQueue m_DeletionQueue{};
 

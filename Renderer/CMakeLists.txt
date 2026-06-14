@@ -107,7 +107,7 @@ set(SOURCES
     "src/Texture.cpp" 
     "src/Buffer.cpp" 
     "src/stb.cpp"
-    "src/CubeMap.cpp")
+    "src/CubeMap.cpp" "src/Light.cpp")
 
 
 # create the executable and defined macros

@@ -3,6 +3,8 @@
 void dae::Mesh::Init(const Device& device, VkCommandPool commandPool, const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices)
 {
     m_DeletionQueue.Flush(); // clear any old data if re-initializing
+
+	m_Vertices = vertices;
   
     VkDeviceSize vertexBufferSize = vertices.size() * sizeof(Vertex);
     VkDeviceSize indexBufferSize = indices.size() * sizeof(uint32_t);

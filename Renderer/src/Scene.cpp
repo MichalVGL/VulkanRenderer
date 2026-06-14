@@ -16,15 +16,94 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 
 	const Device& device = renderer.GetDevice();
 	VkCommandPool commandPool = renderer.GetCommandPool();
-	VkDescriptorSetLayout textureLayout = renderer.GetGBufferPipeline().GetDescriptorSetLayout();
 
 	CreateDefaultTextures(device, commandPool);
 
-	//process materials and textures
-	m_Materials.reserve(pScene->mNumMaterials);
-	for (unsigned int i = 0; i < pScene->mNumMaterials; i++)
+	ProcessMaterials(pScene, renderer, filepath);
+	//process all meshes
+	m_Meshes.reserve(pScene->mNumMeshes);
+	const aiMatrix4x4 rootTransform = pScene->mRootNode->mTransformation;
+	for (unsigned int i = 0; i < pScene->mNumMeshes; i++)
 	{
-		aiMaterial* pAiMaterial = pScene->mMaterials[i];
+		aiMesh* pMesh = pScene->mMeshes[i];
+
+		m_Meshes.push_back(std::unique_ptr<Mesh>(ProcessMesh(pMesh, rootTransform, device, commandPool, device.GetGraphicsQueue())));
+		m_DeletionQueue.PushDeleter(m_Meshes.back()->GetDeletionFlush());
+
+		// Define the mesh's single primitive mapping
+		Primitive prim{};
+		prim.firstIndex = 0;
+		prim.indexCount = pMesh->mNumFaces * 3;
+		prim.materialIndex = pMesh->mMaterialIndex;
+		m_Meshes.back()->AddPrimitive(prim);
+	}
+	//process all nodes
+	ProcessNode(pScene->mRootNode, pScene, glm::mat4x4(1.0f));
+
+	LoadMaterials(renderer); //load to the gpu
+
+	// Add a deleter to wait for the GPU to finish before destroying the scene resources
+	m_DeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice()]()
+		{
+			//wait for the GPU to finish before destroying the scene resources
+			vkDeviceWaitIdle(logicalDevice);
+		});
+
+	//Add lights
+	//auto& dLight = m_DirectionalLights.emplace_back();
+	////sun light
+	//dLight.dir = glm::vec3(0.f, -1.f, 0.f); // Directional light pointing downwards
+	//dLight.lux = 20; 
+	//dLight.temperature = 4700; 
+
+	//auto& pLight1 = m_PointLights.emplace_back();
+	//pLight1.pos = glm::vec3(3.f, 1.f, 0.f);
+	//pLight1.lumen = 400.f;
+	//pLight1.temperature = 2700; 
+
+	//auto& pLight2 = m_PointLights.emplace_back();
+	//pLight2.pos = glm::vec3(-3.f, 1.f, 0.f);
+	//pLight2.lumen = 500.f;
+	//pLight2.temperature = 8700;
+
+	//adjust camera, indoor settings from slides
+	m_Camera.SetAperture(1.4f);
+	m_Camera.SetShutterSpeed(1.f / 60.f);
+	m_Camera.SetISO(1600.f);
+	//m_Camera.SetOrigin({ 0.f, 1.f, 5.f });
+
+	auto* pLight = m_Lights.emplace_back(
+		Light::CreateDirectional(glm::normalize(glm::vec3(-1.f, -1.f, -0.4f)), 4096)
+	).get();
+	
+	pLight->SetLumenOrLux(20.f);
+	pLight->SetTemperature(3700.f);
+
+	LoadLights(renderer); //load to the gpu
+}
+
+void dae::Scene::Update(float deltaTime, const InputHandler& input)
+{
+	m_Camera.Update(deltaTime, input);
+}
+
+std::function<void()> dae::Scene::GetDeletionFlush()
+{
+	return std::function<void()>(
+		std::bind(&DeletionQueue::Flush, &m_DeletionQueue)
+	);
+}
+
+void dae::Scene::ProcessMaterials(const aiScene* aiScenePtr, const Renderer& renderer, const std::filesystem::path& rootFilePath)
+{
+	const Device& device = renderer.GetDevice();
+	VkCommandPool commandPool = renderer.GetCommandPool();
+
+	//process materials and textures
+	m_Materials.reserve(aiScenePtr->mNumMaterials);
+	for (unsigned int i = 0; i < aiScenePtr->mNumMaterials; i++)
+	{
+		aiMaterial* pAiMaterial = aiScenePtr->mMaterials[i];
 		auto pNewMaterial = std::make_unique<Material>();
 
 		aiString texturePath;
@@ -34,7 +113,7 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 		if (pAiMaterial->GetTexture(aiTextureType_BASE_COLOR, 0, &texturePath) == AI_SUCCESS)
 		{
 			// Construct the full path (textures are usually relative to the 3D model file)
-			std::filesystem::path modelDirectory = filepath.parent_path();
+			std::filesystem::path modelDirectory = rootFilePath.parent_path();
 			std::filesystem::path fullTexturePath = modelDirectory / texturePath.C_Str();
 
 			// Create and load the texture
@@ -59,7 +138,7 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 		if (pAiMaterial->GetTexture(aiTextureType_NORMALS, 0, &texturePath) == AI_SUCCESS)
 		{
 			// Construct the full path (textures are usually relative to the 3D model file)
-			std::filesystem::path modelDirectory = filepath.parent_path();
+			std::filesystem::path modelDirectory = rootFilePath.parent_path();
 			std::filesystem::path fullTexturePath = modelDirectory / texturePath.C_Str();
 
 			// Create and load the texture
@@ -84,7 +163,7 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 		if (pAiMaterial->GetTexture(aiTextureType_METALNESS, 0, &texturePath) == AI_SUCCESS)
 		{
 			// Construct the full path (textures are usually relative to the 3D model file)
-			std::filesystem::path modelDirectory = filepath.parent_path();
+			std::filesystem::path modelDirectory = rootFilePath.parent_path();
 			std::filesystem::path fullTexturePath = modelDirectory / texturePath.C_Str();
 
 			// Create and load the texture
@@ -106,125 +185,6 @@ void dae::Scene::Init(const std::filesystem::path& filepath, const Renderer& ren
 
 		m_Materials.push_back(std::move(pNewMaterial));
 	}
-
-	//process all meshes
-	m_Meshes.reserve(pScene->mNumMeshes);
-	const aiMatrix4x4 rootTransform = pScene->mRootNode->mTransformation;
-	for (unsigned int i = 0; i < pScene->mNumMeshes; i++)
-	{
-		aiMesh* pMesh = pScene->mMeshes[i];
-
-		m_Meshes.push_back(std::unique_ptr<Mesh>(ProcessMesh(pMesh, rootTransform, device, commandPool, device.GetGraphicsQueue())));
-		m_DeletionQueue.PushDeleter(m_Meshes.back()->GetDeletionFlush());
-
-		// Define the mesh's single primitive mapping
-		Primitive prim{};
-		prim.firstIndex = 0;
-		prim.indexCount = pMesh->mNumFaces * 3;
-		prim.materialIndex = pMesh->mMaterialIndex;
-		m_Meshes.back()->AddPrimitive(prim);
-	}
-
-	//process all nodes
-	ProcessNode(pScene->mRootNode, pScene, glm::mat4x4(1.0f));
-
-	// Create a descriptor set for the textures of this scene
-	VkDescriptorPoolSize poolSize{};
-	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSize.descriptorCount = 1000;
-
-	VkDescriptorPoolCreateInfo poolInfo{};
-	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	poolInfo.poolSizeCount = 1;
-	poolInfo.pPoolSizes = &poolSize;
-	poolInfo.maxSets = 1;
-
-	vkCreateDescriptorPool(device.GetLogicalDevice(), &poolInfo, nullptr, &m_DescriptorPool);
-	m_DeletionQueue.PushDeleter([pool = m_DescriptorPool, logDev = renderer.GetDevice().GetLogicalDevice()]() {
-		vkDestroyDescriptorPool(logDev, pool, nullptr);
-		});
-
-	// 2. Allocate the Variable Count Set
-	uint32_t texturecount[] = { static_cast<uint32_t>(m_Textures.size()) };
-
-	VkDescriptorSetVariableDescriptorCountAllocateInfo variableAllocInfo{};
-	variableAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
-	variableAllocInfo.descriptorSetCount = 1;
-	variableAllocInfo.pDescriptorCounts = texturecount;
-
-	VkDescriptorSetAllocateInfo allocInfo{};
-	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocInfo.pNext = &variableAllocInfo;
-	allocInfo.descriptorPool = m_DescriptorPool;
-	allocInfo.descriptorSetCount = 1;
-	allocInfo.pSetLayouts = &textureLayout;
-
-	vkAllocateDescriptorSets(device.GetLogicalDevice(), &allocInfo, &m_DescriptorSet);
-
-	// 3. Write all textures into the array
-	std::vector<VkDescriptorImageInfo> imageInfos{};
-	imageInfos.reserve(m_Textures.size());
-	for (const auto& tex : m_Textures) {
-		VkDescriptorImageInfo info{};
-		info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		info.imageView = tex->GetImage().GetImageView();
-		info.sampler = tex->GetSampler();
-		imageInfos.push_back(info);
-	}
-
-	VkWriteDescriptorSet descriptorWrite{};
-	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	descriptorWrite.dstSet = m_DescriptorSet;
-	descriptorWrite.dstBinding = 0;
-	descriptorWrite.dstArrayElement = 0; // Start writing at index 0
-	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	descriptorWrite.descriptorCount = static_cast<uint32_t>(imageInfos.size());
-	descriptorWrite.pImageInfo = imageInfos.data();
-
-	vkUpdateDescriptorSets(device.GetLogicalDevice(), 1, &descriptorWrite, 0, nullptr);
-
-	// Add a deleter to wait for the GPU to finish before destroying the scene resources
-
-	m_DeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice()]()
-		{
-			//wait for the GPU to finish before destroying the scene resources
-			vkDeviceWaitIdle(logicalDevice);
-		});
-
-	//Add lights
-	//auto& dLight = m_DirectionalLights.emplace_back();
-	////sun light
-	//dLight.dir = glm::vec3(0.f, -1.f, 0.f); // Directional light pointing downwards
-	//dLight.lux = 20; 
-	//dLight.temperature = 4700; 
-
-	auto& pLight1 = m_PointLights.emplace_back();
-	pLight1.pos = glm::vec3(3.f, 1.f, 0.f);
-	pLight1.lumen = 400.f;
-	pLight1.temperature = 2700; 
-
-	//auto& pLight2 = m_PointLights.emplace_back();
-	//pLight2.pos = glm::vec3(-3.f, 1.f, 0.f);
-	//pLight2.lumen = 500.f;
-	//pLight2.temperature = 8700;
-
-	//adjust camera, indoor settings from slides
-	m_Camera.SetAperture(1.4f);
-	m_Camera.SetShutterSpeed(1.f / 60.f);
-	m_Camera.SetISO(1600.f);
-	//m_Camera.SetOrigin({ 0.f, 1.f, 5.f });
-}
-
-void dae::Scene::Update(float deltaTime, const InputHandler& input)
-{
-	m_Camera.Update(deltaTime, input);
-}
-
-std::function<void()> dae::Scene::GetDeletionFlush()
-{
-	return std::function<void()>(
-		std::bind(&DeletionQueue::Flush, &m_DeletionQueue)
-	);
 }
 
 void dae::Scene::ProcessNode(aiNode* aiNodePtr, const aiScene* aiScenePtr, const glm::mat4x4& parentTransform)
@@ -243,6 +203,13 @@ void dae::Scene::ProcessNode(aiNode* aiNodePtr, const aiScene* aiScenePtr, const
 		// Assign the correct material to the RenderObject
 		obj.pMaterial = m_Materials[materialIndex].get();
 		obj.transform = worldTransform;
+
+		//Update the scene's AABB with the new mesh's vertices
+		for (const auto& vertex : obj.pMesh->GetVertices())
+		{
+			glm::vec3 worldPos = glm::vec3(worldTransform * glm::vec4(vertex.position, 1.f));
+			m_SceneAABB.Expand(worldPos);
+		}
 
 		m_RenderObjects.push_back(obj);
 	}
@@ -342,6 +309,137 @@ dae::Mesh* dae::Scene::ProcessMesh(aiMesh* aiMeshPtr, const aiMatrix4x4& rootTra
 	pNewMesh->Init(device, commandPool, vertices, indices);
 
 	return pNewMesh;
+}
+
+void dae::Scene::LoadMaterials(const Renderer& renderer)
+{
+	const Device& device = renderer.GetDevice();
+	VkDescriptorSetLayout textureLayout = renderer.GetGBufferPipeline().GetDescriptorSetLayout();
+
+	// Create a descriptor set for the textures of this scene
+	VkDescriptorPoolSize poolSize{};
+	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSize.descriptorCount = MAX_MATERIALS;
+
+	VkDescriptorPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	poolInfo.poolSizeCount = 1;
+	poolInfo.pPoolSizes = &poolSize;
+	poolInfo.maxSets = 1;
+
+	vkCreateDescriptorPool(device.GetLogicalDevice(), &poolInfo, nullptr, &m_TextureDescriptorPool);
+	m_DeletionQueue.PushDeleter([pool = m_TextureDescriptorPool, logDev = renderer.GetDevice().GetLogicalDevice()]() {
+		vkDestroyDescriptorPool(logDev, pool, nullptr);
+		});
+
+	// Allocate the Variable Count Set
+	uint32_t texturecount[] = { static_cast<uint32_t>(m_Textures.size()) };
+
+	VkDescriptorSetVariableDescriptorCountAllocateInfo variableAllocInfo{};
+	variableAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
+	variableAllocInfo.descriptorSetCount = 1;
+	variableAllocInfo.pDescriptorCounts = texturecount;
+
+	VkDescriptorSetAllocateInfo allocInfo{};
+	allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocInfo.pNext = &variableAllocInfo;
+	allocInfo.descriptorPool = m_TextureDescriptorPool;
+	allocInfo.descriptorSetCount = 1;
+	allocInfo.pSetLayouts = &textureLayout;
+
+	vkAllocateDescriptorSets(device.GetLogicalDevice(), &allocInfo, &m_TextureDescriptorSet);
+
+	// Write all textures into the array
+	std::vector<VkDescriptorImageInfo> imageInfos{};
+	imageInfos.reserve(m_Textures.size());
+	for (const auto& tex : m_Textures) {
+		VkDescriptorImageInfo info{};
+		info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		info.imageView = tex->GetImage().GetImageView();
+		info.sampler = tex->GetSampler();
+		imageInfos.push_back(info);
+	}
+
+	VkWriteDescriptorSet descriptorWrite{};
+	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrite.dstSet = m_TextureDescriptorSet;
+	descriptorWrite.dstBinding = 0;
+	descriptorWrite.dstArrayElement = 0; // Start writing at index 0
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	descriptorWrite.descriptorCount = static_cast<uint32_t>(imageInfos.size());
+	descriptorWrite.pImageInfo = imageInfos.data();
+
+	vkUpdateDescriptorSets(device.GetLogicalDevice(), 1, &descriptorWrite, 0, nullptr);
+}
+
+void dae::Scene::LoadLights(const Renderer& renderer)
+{
+	const Device& device = renderer.GetDevice();
+	VkCommandPool commandPool = renderer.GetCommandPool();
+	VkDescriptorSetLayout shadowLayout = renderer.GetShadowDescriptorSetLayout();
+
+	//load (and calculate) the light depth maps into the gpu
+	std::vector<VkImageView> shadowViews{};
+	for (auto& light : m_Lights) {
+		light->Init(renderer, *this); // allocates depth image
+		m_DeletionQueue.PushDeleter(light->GetDeletionFlush());
+		light->SetDepthIndex(static_cast<uint32_t>(shadowViews.size()));
+		shadowViews.push_back(light->GetDepthView());
+	}
+
+	// Pool
+	VkDescriptorPoolSize shadowPoolSize{};
+	shadowPoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	shadowPoolSize.descriptorCount = MAX_LIGHTS;
+
+	VkDescriptorPoolCreateInfo shadowPoolInfo{};
+	shadowPoolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	shadowPoolInfo.poolSizeCount = 1;
+	shadowPoolInfo.pPoolSizes = &shadowPoolSize;
+	shadowPoolInfo.maxSets = 1;
+
+	vkCreateDescriptorPool(device.GetLogicalDevice(), &shadowPoolInfo, nullptr, &m_ShadowDescriptorPool);
+	m_DeletionQueue.PushDeleter([pool = m_ShadowDescriptorPool, dev = device.GetLogicalDevice()]() {
+		vkDestroyDescriptorPool(dev, pool, nullptr);
+		});
+
+	// Variable count alloc
+	uint32_t shadowCount[] = { static_cast<uint32_t>(shadowViews.size()) };
+
+	VkDescriptorSetVariableDescriptorCountAllocateInfo shadowVariableInfo{};
+	shadowVariableInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
+	shadowVariableInfo.descriptorSetCount = 1;
+	shadowVariableInfo.pDescriptorCounts = shadowCount;
+
+	VkDescriptorSetAllocateInfo shadowAllocInfo{};
+	shadowAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	shadowAllocInfo.pNext = &shadowVariableInfo;
+	shadowAllocInfo.descriptorPool = m_ShadowDescriptorPool;
+	shadowAllocInfo.descriptorSetCount = 1;
+	shadowAllocInfo.pSetLayouts = &shadowLayout;
+
+	vkAllocateDescriptorSets(device.GetLogicalDevice(), &shadowAllocInfo, &m_ShadowDescriptorSet);
+
+	// Bulk write
+	std::vector<VkDescriptorImageInfo> shadowImageInfos{};
+	for (VkImageView view : shadowViews) {
+		VkDescriptorImageInfo info{};
+		info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		info.imageView = view;
+		info.sampler = renderer.GetShadowSampler(); // compare sampler from renderer
+		shadowImageInfos.push_back(info);
+	}
+
+	VkWriteDescriptorSet shadowWrite{};
+	shadowWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	shadowWrite.dstSet = m_ShadowDescriptorSet;
+	shadowWrite.dstBinding = 0;
+	shadowWrite.dstArrayElement = 0;
+	shadowWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	shadowWrite.descriptorCount = static_cast<uint32_t>(shadowImageInfos.size());
+	shadowWrite.pImageInfo = shadowImageInfos.data();
+
+	vkUpdateDescriptorSets(device.GetLogicalDevice(), 1, &shadowWrite, 0, nullptr);
 }
 
 void dae::Scene::CreateDefaultTextures(const Device& device, VkCommandPool commandPool)

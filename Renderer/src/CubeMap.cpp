@@ -133,7 +133,7 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 	// Required resources for conversion shader
 
 	//create sampler
-	VkSampler hdriSampler{ VK_NULL_HANDLE };
+	VkSampler sourceSampler{ VK_NULL_HANDLE };
 	VkSamplerCreateInfo samplerInfo{};
 	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 	samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -145,20 +145,20 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerInfo.anisotropyEnable = VK_FALSE;
 
-	if (vkCreateSampler(device.GetLogicalDevice(), &samplerInfo, nullptr, &hdriSampler) != VK_SUCCESS)
+	if (vkCreateSampler(device.GetLogicalDevice(), &samplerInfo, nullptr, &sourceSampler) != VK_SUCCESS)
 	{
 		throw std::runtime_error("Failed to create sampler for hdri image!");
 	}
 	else
 	{
-		functionDeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice(), hdriSampler]()
+		functionDeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice(), sourceSampler]()
 			{
-				vkDestroySampler(logicalDevice, hdriSampler, nullptr);
+				vkDestroySampler(logicalDevice, sourceSampler, nullptr);
 			});
 	}
 
 	// descriptor pool
-	VkDescriptorPool hdriPool{ VK_NULL_HANDLE };
+	VkDescriptorPool sourcePool{ VK_NULL_HANDLE };
 	VkDescriptorPoolSize poolSize{};
 	poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	poolSize.descriptorCount = 1;
@@ -169,25 +169,25 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 	poolInfo.pPoolSizes = &poolSize;
 	poolInfo.maxSets = 1;
 
-	if (vkCreateDescriptorPool(device.GetLogicalDevice(), &poolInfo, nullptr, &hdriPool) != VK_SUCCESS)
+	if (vkCreateDescriptorPool(device.GetLogicalDevice(), &poolInfo, nullptr, &sourcePool) != VK_SUCCESS)
 	{
 		throw std::runtime_error("Failed to create descriptor pool for hdri image!");
 	}
 	else
 	{
-		functionDeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice(), hdriPool]()
+		functionDeletionQueue.PushDeleter([logicalDevice = device.GetLogicalDevice(), sourcePool]()
 			{
-				vkDestroyDescriptorPool(logicalDevice, hdriPool, nullptr);
+				vkDestroyDescriptorPool(logicalDevice, sourcePool, nullptr);
 			});
 	}
 
 	//==============================
 	// Pipeline
 
-	VkPushConstantRange faceIndex{};
-	faceIndex.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	faceIndex.offset = 0;
-	faceIndex.size = sizeof(ConversionPushConstants);
+	VkPushConstantRange pushConstants{}; //constains view and projection matrices
+	pushConstants.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+	pushConstants.offset = 0;
+	pushConstants.size = sizeof(ConversionPushConstants);
 
 	// create pipeline and descriptor sets for the conversion shader
 	PipelineInfo pipelineInfo{};
@@ -199,7 +199,7 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 	pipelineInfo.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
 	pipelineInfo.depthTestEnable = VK_FALSE;
 	pipelineInfo.depthWriteEnable = VK_FALSE;
-	pipelineInfo.pushConstantRange = faceIndex;
+	pipelineInfo.pushConstantRange = pushConstants;
 	pipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::SingleImage;
 	pipelineInfo.additionalSetLayouts = {};
 
@@ -214,7 +214,7 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 	VkDescriptorSet descriptorSet{ VK_NULL_HANDLE };
 	VkDescriptorSetAllocateInfo allocDescInfo{};
 	allocDescInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocDescInfo.descriptorPool = hdriPool;
+	allocDescInfo.descriptorPool = sourcePool;
 	allocDescInfo.descriptorSetCount = 1;
 	allocDescInfo.pSetLayouts = &pipeline.GetDescriptorSetLayout();
 
@@ -227,7 +227,7 @@ void dae::CubeMap::RenderFromImage(const Device& device, VkCommandPool commandPo
 	VkDescriptorImageInfo imageInfo{};
 	imageInfo.imageLayout = sourceLayout;
 	imageInfo.imageView = sourceView;
-	imageInfo.sampler = hdriSampler;
+	imageInfo.sampler = sourceSampler;
 
 	VkWriteDescriptorSet write{};
 	write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

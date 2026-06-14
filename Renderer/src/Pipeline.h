@@ -11,9 +11,10 @@ namespace dae
 
 	enum class TexturesDescriptorLayoutType
 	{
-		BindlessTextures,	// larget texture array
+		BindlessTextures,	// large texture array
 		GBuffer,				// fixed GBuffer
-		SingleImage			//blitting pass (hdr image) and cube map conversion (hdri image)
+		SingleImage,			//blitting pass (hdr image) and cube map conversion (hdri image)
+		None
 	};
 
 	struct PipelineInfo
@@ -30,6 +31,10 @@ namespace dae
 		VkCullModeFlags cullMode{ VK_CULL_MODE_BACK_BIT };
 		VkFrontFace frontFace{ VK_FRONT_FACE_COUNTER_CLOCKWISE };
 		VkPushConstantRange pushConstantRange{};
+		bool depthBiasEnable = false;
+		float depthBiasConstantFactor = 0.f;
+		float depthBiasClamp = 0.f;
+		float depthBiasSlopeFactor = 0.f;
 		TexturesDescriptorLayoutType texturesDescriptorLayout{ TexturesDescriptorLayoutType::BindlessTextures };
 		std::vector<VkDescriptorSetLayout> additionalSetLayouts{}; // scenedata, lights,...
 	};

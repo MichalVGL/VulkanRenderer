@@ -3,8 +3,12 @@
 
 struct GPULight
 {
-    vec4 posDir;
-    vec4 color;
+    vec4  posDir;
+    vec4  color;
+    mat4  lightView;
+    mat4  lightProj;
+    uint  depthIndex;
+    uint  pad[3];
 };
 
 layout(location = 0) in vec2 fragUV;
@@ -29,6 +33,8 @@ layout(set = 2, binding = 0) readonly buffer LightBuffer
 } lightBuffer;
 
 layout(set = 3, binding = 0) uniform samplerCube IBLDiffuse;
+
+layout(set = 4, binding = 0) uniform sampler2DShadow DirectionalShadowMaps[];
 
 layout(location = 0) out vec4 outColor;
 
@@ -85,6 +91,16 @@ vec3 TransformDirectionToCubeMap(in vec3 dir)
 {
     vec3 transformedDir = vec3(dir.z, dir.y, -dir.x);
     return transformedDir;
+}
+
+vec3 GetShadowUV(in GPULight light, in vec3 worldPos)
+{
+    vec4 lightSpacePosition = light.lightProj * light.lightView * vec4(worldPos, 1.0);
+    lightSpacePosition.xyz /= lightSpacePosition.w;
+    vec2 shadowMapUV = lightSpacePosition.xy * 0.5 + 0.5; 
+    shadowMapUV.y = 1.0 - shadowMapUV.y;
+    
+    return vec3(shadowMapUV, lightSpacePosition.z);
 }
 
 // ==================
@@ -148,7 +164,28 @@ void main()
     //vec3 worldNormal = DecodeNormal(normal.xy);
     //outColor = vec4(worldNormal.r, worldNormal.r, worldNormal.r, 1.f);
 
-    ///*
+    float depth = texelFetch(gDepth, ivec2(gl_FragCoord.xy), 0).r;
+    vec3 worldPos = ReconstructWorldPos(depth);
+
+    GPULight light = lightBuffer.lights[0];
+    //vec3 shadowUV = GetShadowUV(light, worldPos);
+    //float shadowDepth = texture(DirectionalShadowMaps[0], shadowUV).r;
+
+    float shadowTerm = 1.0;
+
+    vec3 shadowUV = GetShadowUV(light, worldPos);
+
+    // bounds check — outside frustum = lit
+    if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 &&
+        shadowUV.y >= 0.0 && shadowUV.y <= 1.0 &&
+        shadowUV.z >= 0.0 && shadowUV.z <= 1.0)
+    {
+        // sampler2DShadow + vec3 UV → hardware does depth compare + PCF
+        shadowTerm = texture(DirectionalShadowMaps[nonuniformEXT(light.depthIndex)], shadowUV);
+    }
+
+    outColor = vec4(vec3(shadowTerm), 1.0);
+    /*
 
     //================================
     // PBR Lighting

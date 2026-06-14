@@ -37,6 +37,8 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	CreateLayoutBindings();
 
+	CreateSamplers();
+
 	InitializeImages();
 
 	InitializePipelines();
@@ -192,22 +194,12 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 		VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
 		VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
-
-	// update light info for the current frame
-	const auto& directionalLights = scene.GetDirectionalLights();
-	const auto& pointLights = scene.GetPointLights();
+	//Update the lights buffer with the current scene lights
 	std::vector<GPULight> gpuLights{};
-	gpuLights.reserve(directionalLights.size() + pointLights.size());
-
-	for (const auto& light : directionalLights)
-	{
-		gpuLights.push_back(ConvertDirectionalLight(light));
+	gpuLights.reserve(scene.GetLights().size());
+	for (const auto& light : scene.GetLights()) {
+		gpuLights.push_back(light->GetGPULightData());
 	}
-	for (const auto& light : pointLights)
-	{
-		gpuLights.push_back(ConvertPointLight(light));
-	}
-
 	currentFrame.UpdateLights(gpuLights);
 
 	VkRenderingAttachmentInfo hdrAttachment = MakeColorAttachment(m_HDRImage.GetImageView());
@@ -239,6 +231,10 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
 		m_LightingPipeline.GetPipelineLayout(),
 		3, 1, &m_IBLDiffuseDescriptorSet, 0, nullptr);
+	VkDescriptorSet shadowSet = scene.GetShadowDescriptorSet(); // ← new
+	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+		m_LightingPipeline.GetPipelineLayout(),
+		4, 1, &shadowSet, 0, nullptr);
 	vkCmdDraw(commandBuffer, 3, 1, 0, 0); // fullscreen triangle, hardcoded in shader
 	vkCmdEndRendering(commandBuffer);
 
@@ -319,12 +315,12 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& cu
 	sceneData.proj = proj;
 	sceneData.viewProj = proj * view;
 	sceneData.cameraPos = glm::vec4(scene.GetCamera().GetOrigin(), 1.0f);
-	sceneData.lightCount = static_cast<uint32_t>(scene.GetDirectionalLights().size() + scene.GetPointLights().size());
+	sceneData.lightCount = static_cast<uint32_t>(scene.GetLights().size());
 
 	currentFrame.UpdateSceneData(sceneData);
 
 	// set 0 = global descriptor set (textures)
-	VkDescriptorSet globalSet = scene.GetDescriptorSet();
+	VkDescriptorSet globalSet = scene.GetTexturesDescriptorSet();
 	vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS
 		, m_GBufferPipeline.GetPipelineLayout(),
 		0, 1, &globalSet, 0, nullptr);
@@ -343,7 +339,7 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& cu
 			continue;
 		}
 
-		PushConstants push{};
+		MeshPushConstants push{};
 		push.transform = renderObject.transform;
 		push.vertexBufferAddress = renderObject.pMesh->GetVertexBufferAddress(m_Device);
 		push.albedoTextureIndex = renderObject.pMaterial->albedoTextureIndex;
@@ -352,7 +348,7 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& cu
 
 		vkCmdPushConstants(cmd, pipeline.GetPipelineLayout(),
 			VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-			0, sizeof(PushConstants), &push);
+			0, sizeof(MeshPushConstants), &push);
 
 		vkCmdBindIndexBuffer(cmd,
 			renderObject.pMesh->GetIndexBuffer().GetBuffer(),
@@ -368,7 +364,8 @@ void dae::Renderer::DrawScene(VkCommandBuffer cmd, const Scene& scene, Frame& cu
 
 void dae::Renderer::CreateLayoutBindings()
 {
-	// define both scene data and lights
+	//=========================
+	// scene data
 
 	// Create scene data layout that every frame uses
 	VkDescriptorSetLayoutBinding sceneDataBinding{};
@@ -381,6 +378,18 @@ void dae::Renderer::CreateLayoutBindings()
 	sceneDataLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	sceneDataLayoutInfo.bindingCount = 1;
 	sceneDataLayoutInfo.pBindings = &sceneDataBinding;
+
+	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
+		&sceneDataLayoutInfo, nullptr, &m_SceneDataLayout);
+
+	m_DeletionQueue.PushDeleter([this]()
+		{
+			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(), m_SceneDataLayout, nullptr);
+			m_SceneDataLayout = VK_NULL_HANDLE;
+		});
+
+	//=========================
+	// lights
 
 	// lights from every frame
 	VkDescriptorSetLayoutBinding lightBinding{};
@@ -406,14 +415,33 @@ void dae::Renderer::CreateLayoutBindings()
 			m_LightLayout = VK_NULL_HANDLE;
 		});
 
-	vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
-		&sceneDataLayoutInfo, nullptr, &m_SceneDataLayout);
+	//=========================
+	// light shadows
 
-	m_DeletionQueue.PushDeleter([this]()
-		{
-			vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(), m_SceneDataLayout, nullptr);
-			m_SceneDataLayout = VK_NULL_HANDLE;
-		});
+	{
+		VkDescriptorSetLayoutBinding binding{};
+		binding.binding = 0;
+		binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		binding.descriptorCount = Scene::MAX_LIGHTS;
+		binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+		VkDescriptorSetLayoutCreateInfo layoutInfo{};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = 1;
+		layoutInfo.pBindings = &binding;
+
+		// create both descriptor sets
+
+		vkCreateDescriptorSetLayout(m_Device.GetLogicalDevice(),
+			&layoutInfo, nullptr, &m_ShadowLayout);
+
+		m_DeletionQueue.PushDeleter([this]()
+			{
+				vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(),
+					m_ShadowLayout, nullptr);
+				m_ShadowLayout = VK_NULL_HANDLE;
+			});
+	}
 
 	//=========================
 	// cubemaps 
@@ -463,6 +491,33 @@ void dae::Renderer::CreateLayoutBindings()
 				vkDestroyDescriptorSetLayout(m_Device.GetLogicalDevice(),
 					m_IBLDiffuseLayout, nullptr);
 				m_IBLDiffuseLayout = VK_NULL_HANDLE;
+			});
+	}
+}
+
+void dae::Renderer::CreateSamplers()
+{
+	//=========================
+	// Shadow sampler
+	{
+		VkSamplerCreateInfo samplerInfo{};
+		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		samplerInfo.magFilter = VK_FILTER_LINEAR;
+		samplerInfo.minFilter = VK_FILTER_LINEAR;
+		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+		samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;      
+		samplerInfo.compareEnable = VK_TRUE;                               
+		samplerInfo.compareOp = VK_COMPARE_OP_LESS;
+		samplerInfo.minLod = 0.0f;
+		samplerInfo.maxLod = 1.0f;
+		vkCreateSampler(m_Device.GetLogicalDevice(), &samplerInfo, nullptr, &m_ShadowSampler);
+		m_DeletionQueue.PushDeleter([this]()
+			{
+				vkDestroySampler(m_Device.GetLogicalDevice(), m_ShadowSampler, nullptr);
+				m_ShadowSampler = VK_NULL_HANDLE;
 			});
 	}
 }
@@ -519,7 +574,7 @@ void dae::Renderer::InitializePipelines()
 	VkPushConstantRange meshPushConstantsRange{};
 	meshPushConstantsRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	meshPushConstantsRange.offset = 0;
-	meshPushConstantsRange.size = sizeof(PushConstants);
+	meshPushConstantsRange.size = sizeof(MeshPushConstants);
 
 	VkPushConstantRange blitPushConstantsRange{};
 	blitPushConstantsRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
@@ -575,7 +630,7 @@ void dae::Renderer::InitializePipelines()
 	lightingPipelineInfo.depthTestEnable = VK_FALSE;
 	lightingPipelineInfo.depthWriteEnable = VK_FALSE;
 	lightingPipelineInfo.texturesDescriptorLayout = TexturesDescriptorLayoutType::GBuffer;
-	lightingPipelineInfo.additionalSetLayouts = { m_SceneDataLayout, m_LightLayout, m_IBLDiffuseLayout };
+	lightingPipelineInfo.additionalSetLayouts = { m_SceneDataLayout, m_LightLayout, m_IBLDiffuseLayout, m_ShadowLayout };
 
 	m_LightingPipeline.Init(m_Device, lightingPipelineInfo);
 	m_DeletionQueue.PushDeleter(m_LightingPipeline.GetDeletionFlush());

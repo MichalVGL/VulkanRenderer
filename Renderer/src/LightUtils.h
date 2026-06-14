@@ -2,6 +2,7 @@
 #define LIGHTUTILS_H
 
 #include "pch.h"
+#include "Light.h"
 
 namespace dae
 {
@@ -29,6 +30,9 @@ namespace dae
         return glm::vec3(r, g, b);
     }
 
+    //todo, delete
+    /*
+
     inline GPULight ConvertPointLight(const CPUPointLight& light)
     {
         GPULight gpu{};
@@ -44,6 +48,7 @@ namespace dae
         gpu.color = glm::vec4(KelvinToRgb(light.temperature), light.lux);
         return gpu;
     }
+    //*/
 }
 
 #endif

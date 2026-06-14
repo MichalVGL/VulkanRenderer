@@ -82,6 +82,10 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 	rasterizer.cullMode = info.cullMode;
 	rasterizer.frontFace = info.frontFace;
 	rasterizer.depthBiasEnable = VK_FALSE;
+	rasterizer.depthBiasEnable = info.depthBiasEnable ? VK_TRUE : VK_FALSE;
+	rasterizer.depthBiasConstantFactor = info.depthBiasConstantFactor;     
+	rasterizer.depthBiasClamp = info.depthBiasClamp;                       
+	rasterizer.depthBiasSlopeFactor = info.depthBiasSlopeFactor;
 
 	// multisampling, disabled
 	VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -161,6 +165,10 @@ void dae::Pipeline::Init(const Device& device, const PipelineInfo& info)
 			binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 			layoutInfo.pNext = nullptr;
 		}
+		break;
+	case TexturesDescriptorLayoutType::None:
+		// No texture bindings needed
+		layoutInfo.pNext = nullptr;
 		break;
 	default:
 		throw std::runtime_error("[Pipeline.cpp] unknown descriptor layout type!");
