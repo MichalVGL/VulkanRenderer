@@ -35,6 +35,13 @@ namespace dae
 			m_Deletors.clear();
 		}
 
+		std::function<void()> GetDeletionFlush()
+		{
+			return std::function<void()>(
+				std::bind(&DeletionQueue::Flush, this)
+			);
+		};
+
 	private:
 
 		std::deque<std::function<void()>> m_Deletors;

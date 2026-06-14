@@ -27,7 +27,7 @@ namespace dae
 
 		void Init(const Window* pWindow);
 		
-		void DrawFrame(const Scene& scene);
+		void DrawFrame(const Scene& scene, const Window& window);
 
 		const Device& GetDevice() const { return m_Device; }
 		const Swapchain& GetSwapchain() const { return m_Swapchain; }
@@ -50,11 +50,10 @@ namespace dae
 		void InitializePipelines();
 		void CreateCommandPool();
 		void InitializeGBufferDescriptors();
-		void InitializeHDRImage();
+		void InitializeHDRDescriptor();
 		void InitializeIBL();
-		void DeleteResources();
 
-		void RecreateSwapchainResources();
+		void RecreateSwapchain(const Window& window);
 
 		VkRenderingAttachmentInfo MakeColorAttachment(VkImageView view);
 		VkRenderingAttachmentInfo MakeDepthAttachment(VkImageView view, bool clearImageOnLoad, bool storeImage, VkImageLayout layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
@@ -94,12 +93,15 @@ namespace dae
 		VkSampler m_GBufferSampler{ VK_NULL_HANDLE };
 		VkDescriptorPool m_GBufferDescriptorPool{ VK_NULL_HANDLE };
 		VkDescriptorSet m_GBufferDescriptorSet{ VK_NULL_HANDLE };
+		DeletionQueue m_GBufferDeletionQueue{}; 
+		//due to swapchain dependencies, we might want to reinitialize these 
 
 		//HDR Image
 		Image m_HDRImage{};
 		VkSampler m_HDRSampler{ VK_NULL_HANDLE };
 		VkDescriptorPool m_HDRDescriptorPool{ VK_NULL_HANDLE };
 		VkDescriptorSet m_HDRDescriptorSet{ VK_NULL_HANDLE };
+		DeletionQueue m_HDRDeletionQueue{};
 
 		//sky box 
 		CubeMap m_SkyBox{};

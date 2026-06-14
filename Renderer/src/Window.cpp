@@ -22,10 +22,11 @@ void dae::Window::Init(glm::ivec2 size, const std::string& title)
 	}
 
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); //todo, make it resizable
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); //todo, make it resizable
 
 	m_pWindow = GLFWwindowPtr(glfwCreateWindow(size.x, size.y, title.c_str(), nullptr, nullptr));
 	glfwSetWindowUserPointer(m_pWindow.get(), this);
+	glfwSetFramebufferSizeCallback(m_pWindow.get(), framebufferResizeCallback);
 
 	m_Size = size;
 	m_Title = title;
@@ -39,15 +40,4 @@ bool dae::Window::IsInitialized() const
 bool dae::Window::ShouldClose() const
 {
 	return glfwWindowShouldClose(m_pWindow.get());
-}
-
-void dae::Window::SetResizeCallback(GLFWframebuffersizefun callback)
-{
-	if (!m_pWindow)
-	{
-		std::cerr << "[Window.cpp] trying to set a resize callback, but the window is not initialized!\n";
-		throw std::runtime_error("window is not initialized!");
-	}
-
-	glfwSetFramebufferSizeCallback(m_pWindow.get(), callback);
 }

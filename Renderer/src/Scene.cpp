@@ -80,9 +80,8 @@ void dae::Scene::SetupCamera()
 void dae::Scene::CreateLights()
 {
 	auto* pLight = m_Lights.emplace_back(
-		Light::CreateDirectional(glm::normalize(glm::vec3(0.f, -1.f, 0.f)), 4096)
+		Light::CreateDirectional(glm::normalize(glm::vec3(0.2f, -1.f, 0.4f)), 4096)
 	).get();
-
 	pLight->SetLumenOrLux(20.f);
 	pLight->SetTemperature(3700.f);
 	m_DeletionQueue.PushDeleter(pLight->GetDeletionFlush());
@@ -90,17 +89,22 @@ void dae::Scene::CreateLights()
 	pLight = m_Lights.emplace_back(
 		Light::CreatePoint(glm::vec3(7.f, 1.f, 0.f), 1024) //no shadows implemented
 	).get();
-
 	pLight->SetLumenOrLux(400.f);
 	pLight->SetTemperature(2700.f);
-	m_DeletionQueue.PushDeleter(pLight->GetDeletionFlush());
 
+	m_DeletionQueue.PushDeleter(pLight->GetDeletionFlush());
 	pLight = m_Lights.emplace_back(
 		Light::CreatePoint(glm::vec3(-7.f, 1.f, 0.f), 1024) //no shadows implemented
 	).get();
-
 	pLight->SetLumenOrLux(400.f);
 	pLight->SetTemperature(7700.f);
+	m_DeletionQueue.PushDeleter(pLight->GetDeletionFlush());
+
+	pLight = m_Lights.emplace_back(
+		Light::CreatePoint(glm::vec3(0.f, 1.f, 0.f), 1024) //no shadows implemented
+	).get();
+	pLight->SetLumenOrLux(200.f);
+	pLight->SetTemperature(1000.f);
 	m_DeletionQueue.PushDeleter(pLight->GetDeletionFlush());
 }
 
@@ -261,7 +265,7 @@ dae::Mesh* dae::Scene::ProcessMesh(aiMesh* aiMeshPtr, const aiMatrix4x4& rootTra
 		}
 		else
 		{
-			vertex.normal = { 0.0f, 1.0f, 0.0f }; // Default facing up
+			vertex.normal = { 0.0f, 1.0f, 0.0f }; // Default
 		}
 
 		if (aiMeshPtr->HasTangentsAndBitangents())

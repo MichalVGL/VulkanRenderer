@@ -25,7 +25,7 @@ layout(location = 2) out vec4 outMaterial;  // unused for now
 
 vec2 OctWrap(vec2 v)
 {
-    return (1.0 - abs(v.yx)) * sign(v);
+    return (1.0 - abs(v.yx)) * (step(0.0, v) * 2.0 - 1.0);
 }
 
 // Octahedral normal encoding
@@ -62,7 +62,7 @@ void main()
     vec3 normalSample = texture(globalTextures[nonuniformEXT(push.normalTextureIndex)], fragUV).xyz;
     normalSample = normalize(normalSample * 2.0 - 1.0); // remap from [0,1] to [-1,1]
     outNormal.xy = EncodeNormal(TBN * normalSample); // octahedral encode normal mapped
-    outNormal.zw = EncodeNormal(N); // octahedral encode geometric normal
+    outNormal.zw = EncodeNormal(fragNormal); // octahedral encode geometric normal
 
     outMaterial = texture(globalTextures[nonuniformEXT(push.materialTextureIndex)], fragUV);
 }

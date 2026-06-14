@@ -42,7 +42,7 @@ int main()
 		inputHandler.Update();
 		scene.Update(deltaTime, inputHandler);
 
-		renderer.DrawFrame(scene);
+		renderer.DrawFrame(scene, window);
 
 		glfwPollEvents();
 	}

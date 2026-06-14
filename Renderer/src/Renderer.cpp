@@ -22,7 +22,6 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	if (m_IsInitialized)
 	{
-		DeleteResources(); //todo, remove this and make a reinit function
 	}
 
 	// Device
@@ -58,10 +57,13 @@ void dae::Renderer::Init(const Window* pWindow)
 
 	// initialize descriptor sets for GBuffer and HDR image (used in lighting and blitting pass)
 	InitializeGBufferDescriptors();
-	InitializeHDRImage();
+	InitializeHDRDescriptor();
 	//initialize the skybox
 	InitializeIBL();
 
+	//link the deletion queues of swapchain dependent resources to the main deletion queue, so they get cleared on renderer shutdown as well.
+	m_DeletionQueue.PushDeleter(m_GBufferDeletionQueue.GetDeletionFlush());
+	m_DeletionQueue.PushDeleter(m_HDRDeletionQueue.GetDeletionFlush());
 
 	m_DeletionQueue.PushDeleter([this]()
 		{
@@ -71,21 +73,21 @@ void dae::Renderer::Init(const Window* pWindow)
 	m_IsInitialized = true;
 }
 
-void dae::Renderer::DrawFrame(const Scene& scene)
+void dae::Renderer::DrawFrame(const Scene& scene, const Window& window)
 {
 	Frame& currentFrame = *m_Frames[m_CurrentFrame];
 
 	currentFrame.WaitForFence(m_Device);
 
 	uint32_t imageIndex{};
-	VkResult result = vkAcquireNextImageKHR(m_Device.GetLogicalDevice(), m_Swapchain.GetSwapChain(), UINT64_MAX, currentFrame.GetImageAvailableSemaphore(), VK_NULL_HANDLE, &imageIndex);
+	VkResult acquireResult = vkAcquireNextImageKHR(m_Device.GetLogicalDevice(), m_Swapchain.GetSwapChain(), UINT64_MAX, currentFrame.GetImageAvailableSemaphore(), VK_NULL_HANDLE, &imageIndex);
 
-	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-		//todo, add resizing handling here
-		//recreateSwapChain();
+	if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
+	{
+		RecreateSwapchain(window);
 		return;
 	}
-	else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+	else if (acquireResult != VK_SUCCESS) {
 		throw std::runtime_error("failed to acquire swap chain image!");
 	}
 
@@ -285,7 +287,19 @@ void dae::Renderer::DrawFrame(const Scene& scene)
 
 	currentFrame.EndCommands();
 	currentFrame.Submit(m_Device);
-	currentFrame.Present(m_Device, m_Swapchain, imageIndex);
+
+	VkResult sumbitResult = currentFrame.Present(m_Device, m_Swapchain, imageIndex);
+
+	if (sumbitResult == VK_ERROR_OUT_OF_DATE_KHR ||
+		sumbitResult == VK_SUBOPTIMAL_KHR ||
+		window.IsFramebufferDirty())
+	{
+		RecreateSwapchain(window);
+		return;
+	}
+	else if (sumbitResult != VK_SUCCESS) {
+		throw std::runtime_error("failed to present swap chain image!");
+	}
 
 	m_CurrentFrame = (m_CurrentFrame + 1) % m_MaxFramesInFlight;
 }
@@ -499,29 +513,55 @@ void dae::Renderer::CreateSamplers()
 {
 	//===================================
 	//Shared GBuffer Sampler 
-
-	VkSamplerCreateInfo samplerInfo{};
-	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	samplerInfo.magFilter = VK_FILTER_NEAREST;
-	samplerInfo.minFilter = VK_FILTER_NEAREST;
-	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	samplerInfo.anisotropyEnable = VK_FALSE;
-
-	if (vkCreateSampler(m_Device.GetLogicalDevice(), &samplerInfo, nullptr, &m_GBufferSampler) != VK_SUCCESS)
 	{
-		throw std::runtime_error("[Renderer] failed to create GBuffer sampler!");
-	}
-	else
-	{
-		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
-			{
-				vkDestroySampler(logicalDevice, m_GBufferSampler, nullptr);
-				m_GBufferSampler = VK_NULL_HANDLE;
-			});
-	}
+		VkSamplerCreateInfo samplerInfo{};
+		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		samplerInfo.magFilter = VK_FILTER_NEAREST;
+		samplerInfo.minFilter = VK_FILTER_NEAREST;
+		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.anisotropyEnable = VK_FALSE;
 
+		if (vkCreateSampler(m_Device.GetLogicalDevice(), &samplerInfo, nullptr, &m_GBufferSampler) != VK_SUCCESS)
+		{
+			throw std::runtime_error("[Renderer] failed to create GBuffer sampler!");
+		}
+		else
+		{
+			m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+				{
+					vkDestroySampler(logicalDevice, m_GBufferSampler, nullptr);
+					m_GBufferSampler = VK_NULL_HANDLE;
+				});
+		}
+	}
+	//===================================
+	//HDR Sampler 
+	{
+		VkSamplerCreateInfo samplerInfo{};
+		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		samplerInfo.magFilter = VK_FILTER_NEAREST;
+		samplerInfo.minFilter = VK_FILTER_NEAREST;
+		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.anisotropyEnable = VK_FALSE;
+
+		if (vkCreateSampler(m_Device.GetLogicalDevice(), &samplerInfo, nullptr, &m_HDRSampler) != VK_SUCCESS)
+		{
+			throw std::runtime_error("[Renderer] failed to create HDR sampler!");
+		}
+		else
+		{
+			//not dependent on the swapchain, so can be deleted with the main deletion queue
+			m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+				{
+					vkDestroySampler(logicalDevice, m_HDRSampler, nullptr);
+					m_HDRSampler = VK_NULL_HANDLE;
+				});
+		}
+	}
 	//=========================
 	// Shadow sampler
 	{
@@ -534,7 +574,7 @@ void dae::Renderer::CreateSamplers()
 		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
 		//samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;      
-		samplerInfo.compareEnable = VK_TRUE;                               
+		samplerInfo.compareEnable = VK_TRUE;
 		samplerInfo.compareOp = VK_COMPARE_OP_LESS;
 		//samplerInfo.minLod = 0.0f;
 		//samplerInfo.maxLod = 1.0f;
@@ -558,28 +598,28 @@ void dae::Renderer::InitializeImages()
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_AlbedoImage.GetDeletionFlush());
+	m_GBufferDeletionQueue.PushDeleter(m_AlbedoImage.GetDeletionFlush());
 
 	// Normal image
 	m_NormalImage.Init(m_Device, extent.width, extent.height,
 		VK_FORMAT_R16G16B16A16_UNORM,
 		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_NormalImage.GetDeletionFlush());
+	m_GBufferDeletionQueue.PushDeleter(m_NormalImage.GetDeletionFlush());
 
 	// Material image (roughness, metallic, ao)
 	m_MaterialImage.Init(m_Device, extent.width, extent.height,
 		VK_FORMAT_R8G8B8A8_UNORM,
 		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_MaterialImage.GetDeletionFlush());
+	m_GBufferDeletionQueue.PushDeleter(m_MaterialImage.GetDeletionFlush());
 
 	// Depth image
 	m_DepthImage.Init(m_Device, extent.width, extent.height,
 		VK_FORMAT_D32_SFLOAT,
 		VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_DEPTH_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_DepthImage.GetDeletionFlush());
+	m_GBufferDeletionQueue.PushDeleter(m_DepthImage.GetDeletionFlush());
 
 	//==============================
 	// HDR Image
@@ -588,7 +628,7 @@ void dae::Renderer::InitializeImages()
 		VK_FORMAT_R32G32B32A32_SFLOAT,
 		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 		VK_IMAGE_ASPECT_COLOR_BIT, 1);
-	m_DeletionQueue.PushDeleter(m_HDRImage.GetDeletionFlush());
+	m_HDRDeletionQueue.PushDeleter(m_HDRImage.GetDeletionFlush());
 }
 
 void dae::Renderer::InitializePipelines()
@@ -719,10 +759,11 @@ void dae::Renderer::InitializeGBufferDescriptors()
 	}
 	else
 	{
-		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+		m_GBufferDeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
 			{
 				vkDestroyDescriptorPool(logicalDevice, m_GBufferDescriptorPool, nullptr);
 				m_GBufferDescriptorPool = VK_NULL_HANDLE;
+				m_GBufferDescriptorSet = VK_NULL_HANDLE;
 			});
 	}
 	//===================================
@@ -803,33 +844,8 @@ void dae::Renderer::InitializeGBufferDescriptors()
 		static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 }
 
-void dae::Renderer::InitializeHDRImage()
+void dae::Renderer::InitializeHDRDescriptor()
 {
-	//===================================
-	//HDR Sampler 
-
-	VkSamplerCreateInfo samplerInfo{};
-	samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-	samplerInfo.magFilter = VK_FILTER_NEAREST;
-	samplerInfo.minFilter = VK_FILTER_NEAREST;
-	samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-	samplerInfo.anisotropyEnable = VK_FALSE;
-
-	if (vkCreateSampler(m_Device.GetLogicalDevice(), &samplerInfo, nullptr, &m_HDRSampler) != VK_SUCCESS)
-	{
-		throw std::runtime_error("[Renderer] failed to create HDR sampler!");
-	}
-	else
-	{
-		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
-			{
-				vkDestroySampler(logicalDevice, m_HDRSampler, nullptr);
-				m_HDRSampler = VK_NULL_HANDLE;
-			});
-	}
-
 	//===================================
 	// Descriptor Pool
 
@@ -849,10 +865,11 @@ void dae::Renderer::InitializeHDRImage()
 	}
 	else
 	{
-		m_DeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
+		m_HDRDeletionQueue.PushDeleter([this, logicalDevice = m_Device.GetLogicalDevice()]()
 			{
 				vkDestroyDescriptorPool(logicalDevice, m_HDRDescriptorPool, nullptr);
 				m_HDRDescriptorPool = VK_NULL_HANDLE;
+				m_HDRDescriptorSet = VK_NULL_HANDLE;
 			});
 	}
 
@@ -1023,44 +1040,26 @@ void dae::Renderer::InitializeIBL()
 	}
 }
 
-void dae::Renderer::DeleteResources()
+void dae::Renderer::RecreateSwapchain(const Window& window)
 {
-	m_DeletionQueue.Flush();
-}
-
-void dae::Renderer::RecreateSwapchainResources()
-{
-	/*
-	// Handle minimization - wait until window has size again
+	//wait until window is not minimized anymore (non zero size)
 	int width = 0, height = 0;
-	m_pWindow->GetFramebufferSize(&width, &height);
+	glfwGetFramebufferSize(window.GetGLFWwindow(), &width, &height);
 	while (width == 0 || height == 0) {
-		m_pWindow->GetFramebufferSize(&width, &height);
+		glfwGetFramebufferSize(window.GetGLFWwindow(), &width, &height);
 		glfwWaitEvents();
 	}
 
 	vkDeviceWaitIdle(m_Device.GetLogicalDevice());
 
-	// Destroy only extent-dependent resources, in reverse order
-	vkDestroyDescriptorPool(m_Device.GetLogicalDevice(), m_GBufferDescriptorPool, nullptr);
-	vkDestroyDescriptorPool(m_Device.GetLogicalDevice(), m_HDRDescriptorPool, nullptr);
-	m_GBufferDescriptorPool = VK_NULL_HANDLE;
-	m_HDRDescriptorPool = VK_NULL_HANDLE;
+	m_GBufferDeletionQueue.Flush();
+	m_HDRDeletionQueue.Flush();
 
-	m_HDRImage.Destroy();
-	m_DepthImage.Destroy();
-	m_MaterialImage.Destroy();
-	m_NormalImage.Destroy();
-	m_AlbedoImage.Destroy();
+	m_Swapchain.Init(m_Device, window, m_MaxFramesInFlight); //will destroy the existing resources automatically
 
-	m_Swapchain.Destroy(m_Device);
-
-	// Recreate
-	m_Swapchain.Init(m_Device, *m_pWindow, m_MaxFramesInFlight);
 	InitializeImages();       // uses new extent
 	InitializeGBufferDescriptors();
-	InitializeHDRImage();
-	*/
+	InitializeHDRDescriptor();
 }
 
 VkRenderingAttachmentInfo dae::Renderer::MakeColorAttachment(VkImageView view)

@@ -16,7 +16,7 @@ layout(buffer_reference, scalar) readonly buffer VertexBuffer {
 };
 
 layout(push_constant) uniform PushConstants {
-    mat4 transform; //todo, rename to model transform
+    mat4 transform;
     uint64_t vertexBufferAddress;
     uint32_t albedoTextureIndex;
     uint32_t normalTextureIndex;
@@ -44,7 +44,11 @@ void main()
     // Pull the exact vertex by index
     Vertex v = vb.vertices[gl_VertexIndex];
     gl_Position = sceneData.viewProj * push.transform * vec4(v.position, 1.0);
-    
+
+    mat3 normalMatrix = transpose(inverse(mat3(push.transform)));
+    fragNormal  = normalize(normalMatrix * v.normal);
+    fragTangent = vec4(normalize(mat3(push.transform) * v.tangent.xyz), v.tangent.w);
+
     // Pass properties to fragment shader
     fragNormal = v.normal;
     fragUV = v.uv;

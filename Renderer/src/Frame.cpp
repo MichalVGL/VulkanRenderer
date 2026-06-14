@@ -112,7 +112,7 @@ void dae::Frame::Submit(const Device& device)
 		throw std::runtime_error("failed to submit draw command buffer!");
 }
 
-void dae::Frame::Present(const Device& device, const Swapchain& swapchain, uint32_t imageIndex)
+VkResult dae::Frame::Present(const Device& device, const Swapchain& swapchain, uint32_t imageIndex)
 {
 	VkPresentInfoKHR presentInfo{};
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -125,17 +125,7 @@ void dae::Frame::Present(const Device& device, const Swapchain& swapchain, uint3
 	presentInfo.pSwapchains = swapChains;
 	presentInfo.pImageIndices = &imageIndex;
 
-	VkResult result = vkQueuePresentKHR(device.GetPresentQueue(), &presentInfo);
-
-	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)// || framebufferResized) 
-	{
-		//todo, add resizing handling here
-		//framebufferResized = false;
-		//recreateSwapChain();
-	}
-	else if (result != VK_SUCCESS) {
-		throw std::runtime_error("failed to present swap chain image!");
-	}
+	return vkQueuePresentKHR(device.GetPresentQueue(), &presentInfo);
 }
 
 std::function<void()> dae::Frame::GetDeletionFlush()

@@ -145,7 +145,7 @@ void main()
     //normal
     //vec4 normal = texture(gNormal, fragUV);
     //vec3 worldNormal = DecodeNormal(normal.xy);
-    // outColor = vec4(worldNormal, 1.f);
+    //outColor = vec4(worldNormal, 1.f);
 
     //metalness
     //vec4 albedo = texture(gMaterial, fragUV);
@@ -180,19 +180,20 @@ void main()
 
     const float NdotL = max(dot(GeoNormal, L), 0.0);
     float shadowTerm = 1.0;
-    vec3 shadowUV = GetShadowUV(light, worldPos + GeoNormal * 0.01); //add a small bias in case the normal is perpendicular to the surface (causes floating precision issues)
+    vec3 shadowUV = GetShadowUV(light, worldPos); //add a small bias in case the normal is perpendicular to the surface (causes floating precision issues)
 
-    bounds check — outside frustum = lit
+    // bounds check — outside frustum = lit
     if (shadowUV.x >= 0.0 && shadowUV.x <= 1.0 &&
         shadowUV.y >= 0.0 && shadowUV.y <= 1.0 &&
         shadowUV.z >= 0.0 && shadowUV.z <= 1.0)
     {
         // sampler2DShadow + vec3 UV → hardware does depth compare + PCF
+
         shadowTerm = texture(DirectionalShadowMaps[nonuniformEXT(light.depthIndex)], shadowUV);
     }
     shadowTerm *= smoothstep(0.0f, 0.2f, NdotL);
 
-    outColor = vec4(vec3(shadowTerm), 1.0);
+    outColor = vec4(vec3(shadowTerm) + vec3(0.3), 1.0);
 
     //*/
     ///*

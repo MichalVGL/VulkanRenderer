@@ -47,7 +47,7 @@ namespace dae
 
 		// submission and presentation
 		void Submit(const Device& device);
-		void Present(const Device& device, const Swapchain& swapchain, uint32_t imageIndex);
+		VkResult Present(const Device& device, const Swapchain& swapchain, uint32_t imageIndex);
 
 		// getters
 		VkCommandBuffer GetCommandBuffer() const { return m_CommandBuffer; }
