@@ -77,6 +77,8 @@ std::function<void()> dae::Scene::GetDeletionFlush()
 
 void dae::Scene::SetupCamera()
 {
+	m_Camera.m_Near = 0.1f;
+
 	//adjust camera, indoor settings from slides
 	m_Camera.SetAperture(1.4f);
 	m_Camera.SetShutterSpeed(1.f / 60.f);

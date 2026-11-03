@@ -532,7 +532,7 @@ FodyWeavers.xsd
 # CUSTOM
 
 *.spv
-
+.idea/
 !viking_room.obj
 
 

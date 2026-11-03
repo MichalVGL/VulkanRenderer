@@ -93,6 +93,7 @@ namespace dae
 
 		DeletionQueue m_DeletionQueue{};
 
+		//values passed to the gpu in their W component, this allows the shaders to determine the light type
 		static constexpr float POINT_W_VALUE = 1.0f;
 		static constexpr float DIRECTIONAL_W_VALUE = -1.0f;
 	};

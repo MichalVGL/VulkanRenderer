@@ -135,7 +135,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 # SHADERS DEPENDENCY =============================================
 
 add_custom_target(Renderer_CompileShaders ALL DEPENDS ${SPIRV_FILES})
-add_dependencies(${PROJECT_NAME} Renderer_CompileShaders)
+#add_dependencies(${PROJECT_NAME} Renderer_CompileShaders)
 
 # COPY RESOURCES =============================================
 
@@ -145,3 +145,4 @@ add_custom_target(Renderer_CopyResources ALL DEPENDS Renderer_CompileShaders
     "$<TARGET_FILE_DIR:${PROJECT_NAME}>/resources"
     COMMENT "Copying resources folder to build directory"
 )
+add_dependencies(${PROJECT_NAME} Renderer_CopyResources)
