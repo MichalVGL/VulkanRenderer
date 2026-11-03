@@ -1,17 +1,29 @@
-## GP2: Vulkan Renderer
-Michal Vangelooven  
-https://github.com/Howest-DAE-GD/gp2-vulkan-renderer-MichalVGL.git
+# Vulkan Renderer
 
----
+A vulkan based renderer using the following pipeline:  
+1. Depth-Only pass
+2. GBuffer generation pass
+3. Lighting pass
+4. Tonemapper blit pass
 
-A real time Vulkan renderer made following the course Graphics Programming 2 
-
-Current functionality:
-- Deferred Rendering with an Depth Prepass
-- Camera controls to move in 3D space
-- PBR lighting (Cook-Torrance)
-- Directional and Point lights (with physically based units)
-- Directional light shadow mapping
+Other features:  
+- PBR lighting
+- Directional light shadow maps
 - Image Based Lighting (diffuse only)
-- Physical camera settings
-- Tone mapping (ACES)
+- Physical camera and lights
+
+## Usage
+Extract the zip and run `Renderer.exe`  
+
+### Controls
+
+WASD: First person move. (shift increased move speed)  
+Hold left mouse: Move front/back, rotate left/right  
+Hold right mouse: Rotate camera  
+Hold left and right mouse: move up/down
+
+## Examples
+
+![Example1](ReadMeResources/Example1.png)  
+![Example2](ReadMeResources/Example2.png)  
+![Example3](ReadMeResources/Example3.png)
