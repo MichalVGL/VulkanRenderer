@@ -87,7 +87,8 @@ namespace dae
         static constexpr int DEFAULT_NORMAL_TEXTURE_INDEX = 1;
         static constexpr int DEFAULT_METALIC_ROUGHNESS_TEXTURE_INDEX = 2;
 
-        static constexpr float UNIT_SCALE = 100.f; //sponza is at 0.008 scale. I assume that is in cm, so scale to m
+        static constexpr float UNIT_SCALE = 1.f; //sponza is at 0.008 scale. I assume that is in cm, so scale to m
+        static constexpr float SCENE_SCALE = 10.f;
     };
 }
 

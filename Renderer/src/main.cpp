@@ -24,7 +24,11 @@ int main()
 
 	// Scene
 	dae::Scene scene{};
-	scene.Init("resources/gltf/Sponza/Sponza.gltf", renderer);
+	//scene.Init("resources/gltf/Sponza/Sponza.gltf", renderer);
+	//scene.Init("resources/gltf/lion_head_4k/lion_head_4k.gltf", renderer);
+	//scene.Init("resources/gltf/circuit_board/circuit_board_4k.gltf", renderer);
+	//scene.Init("resources/gltf/modular_fort/modular_fort_01_4k.gltf", renderer);
+	scene.Init("resources/gltf/chess_set/chess_set_4k.gltf", renderer);
 	mainDeletionQueue.PushDeleter(scene.GetDeletionFlush());
 
 	auto& camera = scene.GetCamera();
